@@ -15,6 +15,7 @@ dependencies:
     - matplotlib
     - wandb
     - imageio
+    - pytest
     - pre-commit
     - mypy
     - darglint

@@ -1,0 +1,24 @@
+ARG ROS_VERSION=galactic
+
+FROM ros:$ROS_VERSION-ros-base
+
+RUN apt-get update && apt-get install -y \
+    ros-${ROS_DISTRO}-ur-robot-driver && \
+    rm -rf /var/lib/apt/lists/*
+
+# install the FZI controllers
+# copy the source files
+# install dependencies and run colcon build
+SHELL ["/bin/bash", "-c"]
+
+RUN mkdir -p /ros2_ws/src
+COPY src/ /ros2_ws/src
+WORKDIR /ros2_ws
+RUN rosdep install --from-path . --ignore-src -y
+RUN source /opt/ros/${ROS_DISTRO}/setup.bash && \
+    colcon build --packages-skip cartesian_controller_simulation cartesian_controller_tests --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+# nvidia-container-runtime
+# cf https://stackoverflow.com/a/62354513/11579406
+ENV NVIDIA_VISIBLE_DEVICES ${NVIDIA_VISIBLE_DEVICES:-all}
+ENV NVIDIA_DRIVER_CAPABILITIES ${NVIDIA_DRIVER_CAPABILITIES:+$NVIDIA_DRIVER_CAPABILITIES,}graphics

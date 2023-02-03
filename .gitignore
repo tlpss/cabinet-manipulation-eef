@@ -6,3 +6,5 @@
 **.gif
 **.ckpt
 **.pyc
+**cache**
+**.ipynb_checkpoints/
