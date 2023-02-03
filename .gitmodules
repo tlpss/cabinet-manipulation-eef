@@ -2,3 +2,6 @@
 	path = ROS/src/fzi-cartesian_controllers
 	url = https://github.com/fzi-forschungszentrum-informatik/cartesian_controllers.git
 	branch = ros2-devel
+[submodule "cat-ind-fg"]
+	path = cat-ind-fg
+	url = git@github.com:tlpss/cat-ind-fg.git
