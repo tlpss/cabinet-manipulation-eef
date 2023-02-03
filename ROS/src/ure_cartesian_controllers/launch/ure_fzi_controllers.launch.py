@@ -65,7 +65,7 @@ def launch_setup(context, *args, **kwargs):
     prefix = LaunchConfiguration("prefix")
     use_fake_hardware = LaunchConfiguration("use_fake_hardware")
     fake_sensor_commands = LaunchConfiguration("fake_sensor_commands")
-    initial_joint_controller = LaunchConfiguration("initial_joint_controller")
+    LaunchConfiguration("initial_joint_controller")
     activate_joint_controller = LaunchConfiguration("activate_joint_controller")
     launch_rviz = LaunchConfiguration("launch_rviz")
     headless_mode = LaunchConfiguration("headless_mode")
@@ -340,18 +340,17 @@ def launch_setup(context, *args, **kwargs):
         arguments=["forward_position_controller", "-c", "/controller_manager", "--stopped"],
     )
 
-    # There may be other controllers of the joints, but this is the initially-started one
-    initial_joint_controller_spawner_started = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=[initial_joint_controller, "-c", "/controller_manager"],
-        condition=IfCondition(activate_joint_controller),
+    ### launch webserver nodes with default arguments
+    # https://github.com/RobotWebTools/rosbridge_suite/blob/ros2/rosbridge_server/launch/rosbridge_websocket_launch.xml
+    webserver_node = Node(
+        package="rosbridge_server",
+        executable="rosbridge_websocket",
+        output="screen",
     )
-    initial_joint_controller_spawner_stopped = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=[initial_joint_controller, "-c", "/controller_manager", "--stopped"],
-        condition=UnlessCondition(activate_joint_controller),
+
+    rosapi_node = Node(
+        package="rosapi",
+        executable="rosapi_node",
     )
 
     nodes_to_start = [
@@ -367,11 +366,13 @@ def launch_setup(context, *args, **kwargs):
         speed_scaling_state_broadcaster_spawner,
         force_torque_sensor_broadcaster_spawner,
         forward_position_controller_spawner_stopped,
-        initial_joint_controller_spawner_stopped,
-        initial_joint_controller_spawner_started,
+        # initial_joint_controller_spawner_stopped,
+        # initial_joint_controller_spawner_started,
         cartesian_compliance_controller_spawner,
         cartesian_motion_controller_spawner,
         cartesian_force_controller_spawner,
+        webserver_node,
+        rosapi_node,
     ]
 
     return nodes_to_start

@@ -1,9 +1,14 @@
+# ROS2 docker container
+# that install ur drivers and rosbridge binaries
+# and builds the FZI controller packages
+
 ARG ROS_VERSION=humble
 
 FROM ros:$ROS_VERSION-ros-base
 
 RUN apt-get update && apt-get install -y \
-    ros-${ROS_DISTRO}-ur-robot-driver && \
+    ros-${ROS_DISTRO}-ur-robot-driver \
+    ros-${ROS_DISTRO}-rosbridge-suite && \
     rm -rf /var/lib/apt/lists/*
 
 # install the FZI controllers
