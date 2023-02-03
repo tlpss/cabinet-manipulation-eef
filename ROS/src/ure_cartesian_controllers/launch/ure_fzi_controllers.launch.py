@@ -59,7 +59,6 @@ def launch_setup(context, *args, **kwargs):
     safety_pos_margin = LaunchConfiguration("safety_pos_margin")
     safety_k_position = LaunchConfiguration("safety_k_position")
     # General arguments
-    runtime_config_package = LaunchConfiguration("runtime_config_package")
     LaunchConfiguration("controllers_file")
     description_package = LaunchConfiguration("description_package")
     description_file = LaunchConfiguration("description_file")
@@ -186,25 +185,16 @@ def launch_setup(context, *args, **kwargs):
     )
     robot_description = {"robot_description": robot_description_content}
 
-    initial_joint_controllers = PathJoinSubstitution(
+    initial_controllers_config = PathJoinSubstitution(
         [FindPackageShare("ure_cartesian_controllers"), "config", "cartesian_controllers.yaml"]
     )
 
     rviz_config_file = PathJoinSubstitution([FindPackageShare(description_package), "rviz", "view_robot.rviz"])
 
-    # define update rate
-    update_rate_config_file = PathJoinSubstitution(
-        [
-            FindPackageShare(runtime_config_package),
-            "config",
-            ur_type.perform(context) + "_update_rate.yaml",
-        ]
-    )
-
     control_node = Node(
         package="controller_manager",
         executable="ros2_control_node",
-        parameters=[robot_description, update_rate_config_file, initial_joint_controllers],
+        parameters=[robot_description, initial_controllers_config],
         output={
             "stdout": "screen",
             "stderr": "screen",
@@ -232,7 +222,7 @@ def launch_setup(context, *args, **kwargs):
     ur_control_node = Node(
         package="ur_robot_driver",
         executable="ur_ros2_control_node",
-        parameters=[robot_description, update_rate_config_file, initial_joint_controllers],
+        parameters=[robot_description, initial_controllers_config],
         output={
             "stdout": "screen",
             "stderr": "screen",
@@ -422,14 +412,6 @@ def generate_launch_description():
         )
     )
     # General arguments
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "runtime_config_package",
-            default_value="ur_bringup",
-            description='Package with the controller\'s configuration in "config" folder. \
-        Usually the argument is not set, it enables use of a custom setup.',
-        )
-    )
     declared_arguments.append(
         DeclareLaunchArgument(
             "controllers_file",
