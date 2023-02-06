@@ -5,3 +5,6 @@
 [submodule "cat-ind-fg"]
 	path = cat-ind-fg
 	url = git@github.com:tlpss/cat-ind-fg.git
+[submodule "airo-mono"]
+	path = airo-mono
+	url = git@github.com:airo-ugent/airo-mono.git

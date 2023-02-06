@@ -13,6 +13,7 @@ dependencies:
   - pip:
     - numpy
     - matplotlib
+    - ur-rtde
     - wandb
     - imageio
     - pytest
@@ -20,3 +21,5 @@ dependencies:
     - mypy
     - darglint
     - -e cabinet-robot/
+    - -e airo-mono/airo-typing
+    - -e airo-mono/airo-spatial-algebra
