@@ -1,4 +1,5 @@
-# launch file to start up the UR ros drivers and the fzi cartesian controllers
+# launch file to start up the UR ros drivers, the fzi cartesian controllers
+# a ros webserver and a static transform publi
 
 # This file was hacked together by @tlpss
 # by combining the ur_control.launch.py file from the ur ros2 drivers
@@ -199,6 +200,16 @@ def launch_setup(context, *args, **kwargs):
             "stdout": "screen",
             "stderr": "screen",
         },
+        # the cartesian controllers do not allow to specify the topic names
+        # so remap their topics here
+        remappings=[
+            ("cartesian_compliance_controller/target_frame", "target_pose"),
+            ("cartesian_compliance_controller/target_wrench", "target_wrench"),
+            ("cartesian_compliance_controller/ft_sensor_wrench", "force_torque_sensor_broadcaster/wrench"),
+            ("cartesian_motion_controller/target_frame", "target_pose"),
+            ("cartesian_force_controller/target_frame", "target_pose"),
+            ("cartesian_force_controller/target_force", "target_wrench"),
+        ],
         condition=IfCondition(use_fake_hardware),
     )
 

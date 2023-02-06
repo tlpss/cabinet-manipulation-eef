@@ -2,9 +2,11 @@
 # that install ur drivers and rosbridge binaries
 # and builds the FZI controller packages
 
-ARG ROS_VERSION=humble
-
+ARG ROS_VERSION=galactic
 FROM ros:$ROS_VERSION-ros-base
+# the apt repository was very slow
+# so change to mirrors
+RUN sed -i 's/htt[p|ps]:\/\/archive.ubuntu.com\/ubuntu\//mirror:\/\/mirrors.ubuntu.com\/mirrors.txt/g' /etc/apt/sources.list
 
 RUN apt-get update && apt-get install -y \
     ros-${ROS_DISTRO}-ur-robot-driver \
