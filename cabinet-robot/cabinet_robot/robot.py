@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 import roslibpy
 from airo_spatial_algebra import SE3Container
@@ -29,6 +29,8 @@ class FZIControlledRobot:
     FZI_FORCE_CONTROLLER_NAME = "cartesian_force_controller"
     FZI_ADMITTANCE_CONTROLLER_NAME = "cartesian_compliance_controller"
 
+    FZI_CONTROLLERS = [FZI_MOTION_CONTROLLER_NAME, FZI_FORCE_CONTROLLER_NAME, FZI_ADMITTANCE_CONTROLLER_NAME]
+
     POSITION_CONTROL_TARGET_POSE_TOPIC_NAME = "/target_pose"
     ADMITTANCE_CONTROL_TARGET_POSE_TOPIC_NAME = "/target_pose"
     WRENCH_TOPIC_NAME = "/force_torque_sensor_broadcaster/wrench"
@@ -53,8 +55,11 @@ class FZIControlledRobot:
         self.wrench_thread = self._wrench_listener.subscribe(self._wrench_callback)
         self._latest_wrench = None
 
-        self.control_manager_service = Service(
+        self.control_manager_switch_service = Service(
             self._ros, "/controller_manager/switch_controller", "controller_manager_msgs/SwitchController"
+        )
+        self.control_manager_list_controllers_service = Service(
+            self._ros, "/controller_manager/list_controllers", "controller_manager_msgs/ListControllers"
         )
 
         self.switch_to_position_control()
@@ -95,37 +100,37 @@ class FZIControlledRobot:
         return Message(message)
 
     def switch_to_admittance_control(self):
-        request = roslibpy.ServiceRequest(
-            {
-                "start_controllers": [self.FZI_ADMITTANCE_CONTROLLER_NAME],
-                "stop_controllers": [self.FZI_FORCE_CONTROLLER_NAME, self.FZI_MOTION_CONTROLLER_NAME],
-                "strictness": 2,
-            }
-        )
-        self.control_manager_service.call(request, callback=None, timeout=10)
-        self.active_controller = self.FZI_ADMITTANCE_CONTROLLER_NAME
+        self._switch_controllers(self.FZI_ADMITTANCE_CONTROLLER_NAME)
 
     def switch_to_position_control(self):
-        request = roslibpy.ServiceRequest(
-            {
-                "start_controllers": ["cartesian_motion_controller"],
-                "stop_controllers": ["cartesian_force_controller", "cartesian_compliance_controller"],
-                "strictness": 2,
-            }
-        )
-        self.control_manager_service.call(request, callback=None, timeout=10)
-        self.active_controller = self.FZI_MOTION_CONTROLLER_NAME
+        self._switch_controllers(self.FZI_MOTION_CONTROLLER_NAME)
 
     def switch_to_force_control(self):
+        self._switch_controllers(self.FZI_FORCE_CONTROLLER_NAME)
+
+    def _get_active_FZI_controllers(self) -> List[str]:
+        request = roslibpy.ServiceRequest({})
+        response = self.control_manager_list_controllers_service.call(request, callback=None, timeout=10)
+        controllers = response["controller"]
+        active_controllers = [controller["name"] for controller in controllers if controller["state"] == "active"]
+        active_FZI_controllers = [
+            controller for controller in active_controllers if controller in self.FZI_CONTROLLERS
+        ]
+        return active_FZI_controllers
+
+    def _switch_controllers(self, controller_to_start: str):
+        assert controller_to_start in self.FZI_CONTROLLERS, f"Unknown controller {controller_to_start}"
+        controllers_to_stop = self._get_active_FZI_controllers()
+        controllers_to_start = [controller_to_start]
         request = roslibpy.ServiceRequest(
             {
-                "start_controllers": ["cartesian_force_controller"],
-                "stop_controllers": ["cartesian_motion_controller", "cartesian_compliance_controller"],
+                "start_controllers": controllers_to_start,
+                "stop_controllers": controllers_to_stop,
                 "strictness": 2,
             }
         )
-        self.control_manager_service.call(request, callback=None, timeout=10)
-        self.active_controller = self.FZI_FORCE_CONTROLLER_NAME
+        self.control_manager_switch_service.call(request, callback=None, timeout=10)
+        self.active_controller = controller_to_start
 
 
 ### OPENING CABINETS
@@ -154,4 +159,6 @@ if __name__ == "__main__":
     pose = SE3Container.from_euler_angles_and_translation([np.pi, 0, 0], [0.2, -0.3, 0.3]).homogeneous_matrix
     robot.servo_to_pose(pose)
     # print(robot.get_wrench())
+    # robot.switch_to_admittance_control()
+    print(robot._get_active_FZI_controllers())
     time.sleep(4)
