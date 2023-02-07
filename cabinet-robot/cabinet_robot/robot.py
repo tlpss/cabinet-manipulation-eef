@@ -36,6 +36,7 @@ class FZIControlledRobot:
     WRENCH_TOPIC_NAME = "/force_torque_sensor_broadcaster/wrench"
 
     CONTROL_FRAME = "base"
+    TCP_FRAME = "ur_tcp"
 
     def __init__(self, ros2_ip: str = "127.0.0.1", ros2_port: int = 9090):
         self._ros = Ros(ros2_ip, ros2_port)
@@ -49,11 +50,14 @@ class FZIControlledRobot:
         self._wrench_listener = Topic(
             self._ros, "/force_torque_sensor_broadcaster/wrench", "geometry_msgs/WrenchStamped"
         )
+        self._wrench_listener.subscribe(self._wrench_callback)
+        self._latest_wrench = None
+
+        self._tcp_pose_listener = Topic(self._ros, "ur_tcp_pose", "geometry_msgs/PoseStamped")
+        self._tcp_pose_listener.subscribe(self._tcp_pose_callback)
+        self._latest_tcp_pose = None
 
         self.active_controller = None
-
-        self.wrench_thread = self._wrench_listener.subscribe(self._wrench_callback)
-        self._latest_wrench = None
 
         self.control_manager_switch_service = Service(
             self._ros, "/controller_manager/switch_controller", "controller_manager_msgs/SwitchController"
@@ -67,11 +71,14 @@ class FZIControlledRobot:
     def _wrench_callback(self, message):
         self._latest_wrench = np.array(list(message["wrench"].values()))
 
-    def get_eef_pose(self):
-        # TODO: create a ros node that offers a service from wich the pose can be read
-        # as the tf2 library is not available with roslibpy
-        # and then query that service here
-        raise NotImplementedError
+    def _tcp_pose_callback(self, message):
+        self._latest_tcp_pose = message["pose"]
+
+    def get_tcp_pose(self):
+        print(self._latest_tcp_pose)
+        position = np.array(list(self._latest_tcp_pose["position"].values()))
+        orientation = np.array(list(self._latest_tcp_pose["orientation"].values()))
+        return SE3Container.from_quaternion_and_translation(orientation, position).homogeneous_matrix
 
     def get_wrench(self):
         return self._latest_wrench
@@ -162,3 +169,4 @@ if __name__ == "__main__":
     # robot.switch_to_admittance_control()
     print(robot._get_active_FZI_controllers())
     time.sleep(4)
+    print(robot.get_tcp_pose())
