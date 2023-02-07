@@ -345,12 +345,6 @@ def launch_setup(context, *args, **kwargs):
         ],
     )
 
-    forward_position_controller_spawner_stopped = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=["forward_position_controller", "-c", "/controller_manager", "--stopped"],
-    )
-
     ### launch webserver nodes with default arguments
     # https://github.com/RobotWebTools/rosbridge_suite/blob/ros2/rosbridge_server/launch/rosbridge_websocket_launch.xml
     webserver_node = Node(
@@ -362,6 +356,25 @@ def launch_setup(context, *args, **kwargs):
     rosapi_node = Node(
         package="rosapi",
         executable="rosapi_node",
+    )
+
+    ## static broadcaster for the TCP Pose (which is the actual pose that you want to control using the FZI controllers)
+    # might be a better idea to put this in the URDF but didn't feel like editing the URDF file
+    # as this would create (more) code duplication
+    static_tcp_broadcaster = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        # this value should match the TCP offset in the Polyscope installation
+        # to make sure that the pose that is published is the same as
+        # the one that is obained with in the polyscope
+        arguments=["0", "0", "0.175", "0", "0", "0", "tool0", "ur_tcp"],
+    )
+
+    # node to publish the TCP pose as a topic
+    tf2_to_topic_publisher_node = Node(
+        package="ure_cartesian_controllers",
+        executable="tf2_to_topic_publisher",
+        parameters=[{"from_frame": "base"}, {"to_frame": "ur_tcp"}, {"topic_name": "ur_tcp_pose"}],
     )
 
     nodes_to_start = [
@@ -376,14 +389,13 @@ def launch_setup(context, *args, **kwargs):
         io_and_status_controller_spawner,
         speed_scaling_state_broadcaster_spawner,
         force_torque_sensor_broadcaster_spawner,
-        forward_position_controller_spawner_stopped,
-        # initial_joint_controller_spawner_stopped,
-        # initial_joint_controller_spawner_started,
         cartesian_compliance_controller_spawner,
         cartesian_motion_controller_spawner,
         cartesian_force_controller_spawner,
         webserver_node,
         rosapi_node,
+        static_tcp_broadcaster,
+        tf2_to_topic_publisher_node,
     ]
 
     return nodes_to_start
