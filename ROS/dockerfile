@@ -4,14 +4,29 @@
 
 ARG ROS_VERSION=galactic
 FROM ros:$ROS_VERSION-ros-base
+
 # the apt repository was very slow
 # so change to mirrors
-RUN sed -i 's/htt[p|ps]:\/\/archive.ubuntu.com\/ubuntu\//mirror:\/\/mirrors.ubuntu.com\/mirrors.txt/g' /etc/apt/sources.list
+#RUN sed -i 's/htt[p|ps]:\/\/archive.ubuntu.com\/ubuntu\//mirror:\/\/mirrors.ubuntu.com\/mirrors.txt/g' /etc/apt/sources.list
 
 RUN apt-get update && apt-get install -y \
     ros-${ROS_DISTRO}-ur-robot-driver \
+    # ros bridge suite for websocket communication with ROS from outside the container
     ros-${ROS_DISTRO}-rosbridge-suite && \
     rm -rf /var/lib/apt/lists/*
+
+    # install some tools for debugging
+RUN apt-get update && apt-get install -y \
+    ros-${ROS_DISTRO}-demo-nodes-cpp \
+    ros-${ROS_DISTRO}-demo-nodes-py \
+    ros-${ROS_DISTRO}-rqt \
+    ros-${ROS_DISTRO}-rqt-common-plugins && \
+    rm -rf /var/lib/apt/lists/*
+
+# nvidia-container-runtime
+# cf https://stackoverflow.com/a/62354513/11579406
+ENV NVIDIA_VISIBLE_DEVICES ${NVIDIA_VISIBLE_DEVICES:-all}
+ENV NVIDIA_DRIVER_CAPABILITIES ${NVIDIA_DRIVER_CAPABILITIES:+$NVIDIA_DRIVER_CAPABILITIES,}graphics
 
 # install the FZI controllers
 # copy the source files
@@ -20,6 +35,7 @@ SHELL ["/bin/bash", "-c"]
 
 RUN mkdir -p /ros2_ws/src
 COPY src/ /ros2_ws/src
+COPY scripts/ /ros2_ws/scripts
 WORKDIR /ros2_ws
 RUN rosdep install --from-path . --ignore-src -y
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash && \
