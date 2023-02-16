@@ -27,6 +27,8 @@ class FZIControlledRobot:
     python <--JSON--> ROS2 Webserver <--ROS messages--> ROS2 <--RTDE--> UR robot
     """
 
+    # TODO: implement the airo-robots async interface once it is stable.
+
     # controller names as defined in the ros launch/config files of the FZI controllers
     FZI_MOTION_CONTROLLER_NAME = "cartesian_motion_controller"
     FZI_FORCE_CONTROLLER_NAME = "cartesian_force_controller"
@@ -162,23 +164,6 @@ class FZIControlledRobot:
         )
         self.control_manager_switch_service.call(request, callback=None, timeout=10)
         self.active_controller = controller_to_start
-
-
-### OPENING CABINETS
-
-# start in position control mode
-
-# move to handle pregrasp pose
-# switch to admittance
-# grasp
-# set the initial cabinet joint estimate to be a revolute joint between the handle and the robot base
-
-# while not open ()
-# for N steps
-# move along that joint estimate in increments of 2cm.
-# if the force becomes too high or the gripper no longer has contact, stop
-# collect the gripper pose
-# make new estimate of the articulation
 
 
 if __name__ == "__main__":
