@@ -8,7 +8,7 @@ channels:
   - pytorch
   - conda-forge
 dependencies:
-  - python=3.10
+  - python=3.8 # 3.8 needed for the sturm wheel
   - pip
   - pip:
     - numpy
@@ -23,3 +23,5 @@ dependencies:
     - -e cabinet-robot/
     - -e airo-mono/airo-typing
     - -e airo-mono/airo-spatial-algebra
+    #- -r cat-ind-fg/requirements.txt
+    - -e cat-ind-fg/

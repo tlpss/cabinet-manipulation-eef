@@ -9,6 +9,7 @@ setuptools.setup(
     description="TODO",
     install_requires=[
         "numpy",
+        "roslibpy",
     ],
     packages=find_packages(),
 )

@@ -23,6 +23,8 @@ setup(
     description="TODO: Package description",
     license="TODO: License declaration",
     entry_points={
+        # these make the modules executable from the command line by running ros2 run <package_name> <script_name>
+        # otherwise you have to run python <path_to_script>
         "console_scripts": ["tf2_to_topic_publisher = ure_cartesian_controllers.tf2_to_topic_publisher:main"],
     },
 )
