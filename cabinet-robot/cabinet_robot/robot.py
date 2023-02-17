@@ -74,18 +74,26 @@ class FZIControlledRobot:
     def _wrench_callback(self, message):
         # TODO: fix this to return a proper airo-typing wrench-like object.
         # self._latest_wrench = np.array(list(message["wrench"].values()))
-        raise NotImplementedError
+        self._latest_wrench = message["wrench"]
 
     def _tcp_pose_callback(self, message):
         self._latest_tcp_pose = message["pose"]
 
     def get_tcp_pose(self):
+        if self._latest_tcp_pose is None:
+            raise RuntimeError("No TCP pose received yet.")
+
         position = np.array(list(self._latest_tcp_pose["position"].values()))
         orientation = np.array(list(self._latest_tcp_pose["orientation"].values()))
         return SE3Container.from_quaternion_and_translation(orientation, position).homogeneous_matrix
 
     def get_wrench(self):
-        return self._latest_wrench
+        if self._latest_wrench is None:
+            raise RuntimeError("No wrench received yet.")
+        force = np.array(list(self._latest_wrench["force"].values()))
+        torque = np.array(list(self._latest_wrench["torque"].values()))
+        # TODO: this wrench is expressed in the sensor frame, not in the base frame as for the ur-rtde library/ ur robot controller.
+        return np.concatenate([force, torque])
 
     def servo_to_pose(self, pose: HomogeneousMatrixType) -> None:
         if self.active_controller not in (self.FZI_ADMITTANCE_CONTROLLER_NAME, self.FZI_MOTION_CONTROLLER_NAME):
@@ -103,7 +111,10 @@ class FZIControlledRobot:
 
         waiting_time = 0.0
         # TODO: this still times out sometimes, even though the robot is already at the target pose.
+        # because the received pose is from the TCP frame but the commanded pose interpreted in the tool0 frame.
+        # will have to create a custom URDF with the TCP included to overcome all this.
         while np.linalg.norm(self.get_tcp_pose()[:3, 3] - pose[:3, 3]) > 0.02:
+            print(self.get_tcp_pose()[:3, 3])
             time.sleep(0.1)
             waiting_time += 0.1
             if waiting_time > 10:
