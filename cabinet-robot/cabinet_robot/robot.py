@@ -4,7 +4,7 @@ from typing import Optional
 
 import roslibpy
 from airo_spatial_algebra import SE3Container
-from airo_typing import HomogeneousMatrixType
+from airo_typing import HomogeneousMatrixType, WrenchType
 from roslibpy import Message, Ros, Service, Topic
 from roslibpy.core import UserDict
 
@@ -19,12 +19,15 @@ class ROS2Header(UserDict):
 
 
 class FZIControlledRobot:
-    """class for controlling UR robots over ROS with the FZI controllers.
+    """class for controlling UR robots over ROS with the FZI controllers as configured in the `ure_cartesian_controllers` ROS package.
     The class uses the ROS2 Webserver to communicate to the ROS nodes without the need for a local ROS2 installation (ROS2 can run in a docker container)
     and/or without having to wrap your codebase in (a) ROS2 node(s).
-
     The communication stack is as follows:
     python <--JSON--> ROS2 Webserver <--ROS messages--> ROS2 <--RTDE--> UR robot
+
+    The FZI controllers are configured to work with the ROS tool0 frame (which corresponds to TCP frame of the TCP offsets are all set to zero in the control box)
+    This class will convert these poses to the TCP frame using the manually defined Z-offset. It would be more elegant to add this offset to the URDF and have the FZI controllers work in that frame
+    directly.
     """
 
     # TODO: implement the airo-robots async interface once it is stable.
@@ -41,7 +44,9 @@ class FZIControlledRobot:
     WRENCH_TOPIC_NAME = "/force_torque_sensor_broadcaster/wrench"
 
     CONTROL_FRAME = "base"
-    TCP_FRAME = "tool0"  # TODO: use TCP frame, by adding it to the URDF
+    FLANGE_FRAME = "tool0"
+
+    TCP_Z_OFFSET = 0.175  # offset from the ROS tool0 frame to the TCP of the UR robot as configured in the controlbox.
 
     def __init__(self, ros2_ip: str = "127.0.0.1", ros2_port: int = 9090):
         self._ros = Ros(ros2_ip, ros2_port)
@@ -69,51 +74,80 @@ class FZIControlledRobot:
             self._ros, "/controller_manager/list_controllers", "controller_manager_msgs/ListControllers"
         )
 
+        self.tcp_in_flange_frame = SE3Container.from_translation(
+            np.array([0, 0, self.TCP_Z_OFFSET])
+        ).homogeneous_matrix
+
         self.active_controller = self._get_active_FZI_controller()
 
     def _wrench_callback(self, message):
-        # TODO: fix this to return a proper airo-typing wrench-like object.
-        # self._latest_wrench = np.array(list(message["wrench"].values()))
         self._latest_wrench = message["wrench"]
 
     def _tcp_pose_callback(self, message):
         self._latest_tcp_pose = message["pose"]
 
-    def get_tcp_pose(self):
+    def get_tcp_pose(self) -> Optional[HomogeneousMatrixType]:
         if self._latest_tcp_pose is None:
-            raise RuntimeError("No TCP pose received yet.")
+            warnings.warn("No TCP pose received yet. Returning None.")
+            return None
 
         position = np.array(list(self._latest_tcp_pose["position"].values()))
         orientation = np.array(list(self._latest_tcp_pose["orientation"].values()))
         return SE3Container.from_quaternion_and_translation(orientation, position).homogeneous_matrix
 
-    def get_wrench(self):
+    def get_wrench(self) -> Optional[WrenchType]:
+        """returns the latest wrench as measured in the sensor frame, and expressed in that sensor frame."""
+        # TODO: this wrench is expressed in the sensor frame. The native UR command returns the wrench expressed in the base frame.
+        # should do this as well by using the adjoint matrix of the current sensor (flange) pose.
+
         if self._latest_wrench is None:
-            raise RuntimeError("No wrench received yet.")
+            warnings.warn("No wrench received yet. Returning None.")
+            return None
         force = np.array(list(self._latest_wrench["force"].values()))
         torque = np.array(list(self._latest_wrench["torque"].values()))
-        # TODO: this wrench is expressed in the sensor frame, not in the base frame as for the ur-rtde library/ ur robot controller.
         return np.concatenate([force, torque])
 
-    def servo_to_pose(self, pose: HomogeneousMatrixType) -> None:
+    def set_target_pose(self, tcp_pose: HomogeneousMatrixType) -> None:
+        """sets a new target pose for the active controller. The method is asynchronous and will return immediately.
+        If the admittance controller is active, the robot will try to reach this new setpoint while behaving as the mass-spring-damper system defined by the admittance parameters.
+        If the motion controller is active, the result will be similar to calling the servoJ/L method of the UR due to the inner workings of the motion controller.
+
+        Args:
+            tcp_pose (HomogeneousMatrixType): the target pose of the TCP in the base frame.
+
+        Returns:
+            None
+        """
+
         if self.active_controller not in (self.FZI_ADMITTANCE_CONTROLLER_NAME, self.FZI_MOTION_CONTROLLER_NAME):
             warnings.warn("Ignoring servo target as nor the admittance nor the motion controller is active.")
             return
-        message = self._create_stamped_pose_message_from_pose(pose)
+
+        tool0_pose = tcp_pose @ np.linalg.inv(self.tcp_in_flange_frame)
+
+        message = self._create_stamped_pose_message_from_pose(tool0_pose)
         self._admittance_target_pose_publisher.publish(Message(message))
 
-    def move_to_pose(self, pose: HomogeneousMatrixType):
+    def move_to_pose(self, tcp_pose: HomogeneousMatrixType) -> None:
+        """Moves the robot to the given TCP pose. The method is synchronous and will block until the robot has reached the target pose.
+        under the hood, the method activates the FZI motion controller and publishes the target pose to the corresponding topic.
+        The FZI motion controller will interpolate the target pose if required so that the velocity is somewhat constant, but it does not apply a strict velocity profile such as the
+        UR's native MoveL function.
+
+        Args:
+            tcp_pose (HomogeneousMatrixType): the target pose of the TCP in the base frame.
+        """
+
         if not self.active_controller == self.FZI_MOTION_CONTROLLER_NAME:
             print("switching to position control")
             self.switch_to_position_control()
-        message = self._create_stamped_pose_message_from_pose(pose)
+
+        tool0_pose = tcp_pose @ np.linalg.inv(self.tcp_in_flange_frame)
+        message = self._create_stamped_pose_message_from_pose(tool0_pose)
         self._motion_target_pose_publisher.publish(Message(message))
 
         waiting_time = 0.0
-        # TODO: this still times out sometimes, even though the robot is already at the target pose.
-        # because the received pose is from the TCP frame but the commanded pose interpreted in the tool0 frame.
-        # will have to create a custom URDF with the TCP included to overcome all this.
-        while np.linalg.norm(self.get_tcp_pose()[:3, 3] - pose[:3, 3]) > 0.02:
+        while np.linalg.norm(self.get_tcp_pose()[:3, 3] - tcp_pose[:3, 3]) > 0.005:
             print(self.get_tcp_pose()[:3, 3])
             time.sleep(0.1)
             waiting_time += 0.1
@@ -123,6 +157,7 @@ class FZIControlledRobot:
         return
 
     def _create_stamped_pose_message_from_pose(self, pose: HomogeneousMatrixType) -> Message:
+        """helper function to publish target poses to the FZI controllers over the webbridge."""
         quaternion = SE3Container.from_homogeneous_matrix(pose).orientation_as_quaternion
         message = dict(header=dict(ROS2Header(frame_id=self.CONTROL_FRAME, stamp=roslibpy.Time.now())))
         message["pose"] = dict(
@@ -141,6 +176,7 @@ class FZIControlledRobot:
         self._switch_controllers(self.FZI_FORCE_CONTROLLER_NAME)
 
     def _get_active_FZI_controller(self) -> typing.Union[None, str]:
+        """returns the name of the active FZI controller, or None if no FZI controller is active."""
         request = roslibpy.ServiceRequest({})
         response = self.control_manager_list_controllers_service.call(request, callback=None, timeout=10)
         controllers = response["controller"]
@@ -157,6 +193,12 @@ class FZIControlledRobot:
         return active_FZI_controller
 
     def _switch_controllers(self, controller_to_start: str):
+        """switches to the desired controller. If another FZI controller is active, it will be stopped simultaneously.
+        uses the controller_manager service to accomplish this.
+
+        Args:
+            controller_to_start (str): the name of the controller to start. Must be one of the FZI_CONTROLLERS.
+        """
         assert controller_to_start in self.FZI_CONTROLLERS, f"Unknown controller {controller_to_start}"
         active_controller = self._get_active_FZI_controller()
 
@@ -183,14 +225,15 @@ if __name__ == "__main__":
     import numpy as np
 
     robot = FZIControlledRobot()
-    pose = SE3Container.from_euler_angles_and_translation([0, np.pi, 0], [0.2, -0.3, 0.3]).homogeneous_matrix
+    pose = SE3Container.from_euler_angles_and_translation([0, np.pi, 0], [0.2, -0.3, 0.1]).homogeneous_matrix
+    print(robot.get_tcp_pose())
     robot.move_to_pose(pose)
     print(robot.get_wrench())
     robot.switch_to_admittance_control()
     print(robot._get_active_FZI_controller())
     # time.sleep(4)
     pose[0, 3] += 0.1
-    robot.servo_to_pose(pose)
+    robot.set_target_pose(pose)
     time.sleep(10)
     pose[1, 3] += 0.1
     robot.move_to_pose(pose)

@@ -40,7 +40,7 @@ class CabinetOpener:
                 new_setpoint_pose = self.get_gripper_pose_from_joint_q_and_twist(
                     q_joint, self.initial_gripper_pose, estimated_twist
                 )
-                self.robot.servo_to_pose(new_setpoint_pose)
+                self.robot.set_target_pose(new_setpoint_pose)
                 # if force has become too high or gripper no longer has contact, stop
                 if self._is_force_too_high() or not self._is_grasped_heuristic():
                     raise Exception("Cabinet could not be opened")
