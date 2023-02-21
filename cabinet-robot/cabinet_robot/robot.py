@@ -1,7 +1,9 @@
+import time
 import typing
 import warnings
 from typing import Optional
 
+import numpy as np
 import roslibpy
 from airo_spatial_algebra import SE3Container
 from airo_typing import HomogeneousMatrixType, WrenchType
@@ -148,7 +150,6 @@ class FZIControlledRobot:
 
         waiting_time = 0.0
         while np.linalg.norm(self.get_tcp_pose()[:3, 3] - tcp_pose[:3, 3]) > 0.005:
-            print(self.get_tcp_pose()[:3, 3])
             time.sleep(0.1)
             waiting_time += 0.1
             if waiting_time > 10:
@@ -220,13 +221,10 @@ class FZIControlledRobot:
 
 
 if __name__ == "__main__":
-    import time
-
-    import numpy as np
-
     robot = FZIControlledRobot()
     pose = SE3Container.from_euler_angles_and_translation([0, np.pi, 0], [0.2, -0.3, 0.1]).homogeneous_matrix
     print(robot.get_tcp_pose())
+    print(robot.get_wrench())
     robot.move_to_pose(pose)
     print(robot.get_wrench())
     robot.switch_to_admittance_control()
