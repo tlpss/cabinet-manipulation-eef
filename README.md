@@ -13,8 +13,8 @@ To run the code on your robot setup:
 #### python code
 
 - clone this repo and pull the submodules `git submodule init && git submodule update`
+- manually install some apt packages that are required: `sudo apt-get install -y libsuitesparse-dev libboost-all-dev libcholmod3`
 - create the conda environment `conda env create -f environment.yaml`
-- manually install the cat-ind-fg dependencies with `pip install -r cat-ind-fg/requirements.txt` and don't forget the apt installs in the cat-ind-fg readme
 - initialize the pre-commit hooks `pre-commit install`
 
 
