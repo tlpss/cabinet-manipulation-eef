@@ -1,14 +1,24 @@
-# ROS2 docker container
-# that install ur drivers and rosbridge binaries
-# and builds the FZI controller packages
+##################################################
+# ROS2 galactic docker container
+# that installs ur drivers and rosbridge binaries
+# and builds the FZI controller package
 
-ARG ROS_VERSION=galactic
-FROM ros:$ROS_VERSION-ros-base
+# this container can be used to run the FZI controllers on a URe robot without ROS2 installed on the host machine
+##################################################
+
+
+# use galactic even though it is EOL. 
+# For changing to humble:
+# - In humble there are some changes to the ur driver structure (launch files are moved), so adapt launch file accordingly.
+# - Humble also uses FastDDS which uses shared memory for communication if possible, make sure to either share the memory of the container or
+# to configure FastDDS to not use shared memory.
+# - most importantly: the ur controller_manager crashed in humble without any error message. Didn't want to debug it, so I sticked to galactic.
+
+FROM ros:galactic-ros-base
 
 # the apt repository was very slow
 # so change to mirrors
 #RUN sed -i 's/htt[p|ps]:\/\/archive.ubuntu.com\/ubuntu\//mirror:\/\/mirrors.ubuntu.com\/mirrors.txt/g' /etc/apt/sources.list
-
 RUN apt-get update && apt-get install -y \
     ros-${ROS_DISTRO}-ur-robot-driver \
     # ros bridge suite for websocket communication with ROS from outside the container
@@ -20,7 +30,9 @@ RUN apt-get update && apt-get install -y \
     ros-${ROS_DISTRO}-demo-nodes-cpp \
     ros-${ROS_DISTRO}-demo-nodes-py \
     ros-${ROS_DISTRO}-rqt \
-    ros-${ROS_DISTRO}-rqt-common-plugins && \
+    ros-${ROS_DISTRO}-rqt-common-plugins  \
+    iputils-ping \ 
+    iproute2 && \ 
     rm -rf /var/lib/apt/lists/*
 
 # nvidia-container-runtime
