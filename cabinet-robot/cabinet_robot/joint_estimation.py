@@ -4,6 +4,7 @@ import articulation_estimation.factor_graph as factor_graph
 import articulation_estimation.helpers as helpers
 import numpy as onp
 from airo_typing import HomogeneousMatrixType
+from articulation_estimation import baseline
 from articulation_estimation.baseline.joints import TwistJointParameters
 from articulation_estimation.factor_graph.helpers import JointFormulation
 from articulation_estimation.sample_generator import JointConnection
@@ -44,7 +45,7 @@ def optimize_graph(
     variance_pos=0.005,
     variance_ori=0.02,
     verbose=False,
-    max_restarts=10,
+    max_restarts=2,
     aux_data_in={},
     use_huber=False,
 ):
@@ -90,26 +91,34 @@ def FG_twist_estimation(part_poses: List[HomogeneousMatrixType], stddev_pos, std
     return estimation, aux_data_fg_pred
 
 
-# def sturm_twist_estimation(poses_body,poses_articulation, stddev_pos, stddev_ori):
-#     base_transform_sturm, twist_sturm, aux_data_sturm = baseline.sturm.fit_pose_trajectories(
-#         poses_body,
-#         poses_articulation,
-#         variance_pos=stddev_pos * stddev_pos,
-#         variance_ori=stddev_ori * stddev_ori,
-#         original=False,
-#     )
+def sturm_twist_estimation(part_poses, stddev_pos, stddev_ori):
+    part_poses = [jaxlie_SE3.from_matrix(pose) for pose in part_poses]
+    # using the initial part pose as body poses
+    # will make the twist in the part pose's initial frame
+    # could also set to the origin
+    body_poses = [part_poses[0]] * len(part_poses)
+    base_transform_sturm, twist_sturm, aux_data_sturm = baseline.sturm.fit_pose_trajectories(
+        body_poses,
+        [part_poses],
+        variance_pos=stddev_pos * stddev_pos,
+        variance_ori=stddev_ori * stddev_ori,
+        original=False,
+        aux_data_in={"joint_states": None, "latent_poses": None},
+    )
 
-#     estimation = TwistJointParameters(
-#         helpers.mean_pose(aux_data_sturm["latent_poses"]["first"])
-#         @ base_transform_sturm,
-#         twist_sturm,
-#     )
-#     return estimation
+    estimation = TwistJointParameters(
+        helpers.mean_pose(aux_data_sturm["latent_poses"]["first"]) @ base_transform_sturm,
+        twist_sturm,
+    )
+    return estimation, aux_data_sturm
 
 
 if __name__ == "__main__":
 
+    import jax
     import numpy as np
+
+    jax.config.update("jax_disable_jit", True)
 
     original_part_pose = np.eye(4)
     part_poses = [np.copy(original_part_pose)]
@@ -117,7 +126,7 @@ if __name__ == "__main__":
         original_part_pose[0, 3] += 0.01
         part_poses.append(np.copy(original_part_pose))
 
-    results, aux_data_dict = FG_twist_estimation(part_poses, stddev_pos=0.005, stddev_ori=0.02)
+    results, aux_data_dict = sturm_twist_estimation(part_poses, stddev_pos=0.005, stddev_ori=0.02)
     print(f"{results.twist=}")
     print(f"{results.base_transform=}")
     print(aux_data_dict["latent_poses"]["first"][0])
@@ -137,7 +146,5 @@ if __name__ == "__main__":
 
     import spatialmath.base as sm
 
-    twist_in_poses_frame = sm.tr2adjoint(np.asarray(results.base_transform.as_matrix())) @ np.asarray(
-        results.twist.as_matrix()
-    )
+    twist_in_poses_frame = sm.tr2adjoint(np.asarray(results.base_transform.as_matrix())) @ np.asarray(results.twist)
     print(jaxlie_SE3.exp(twist_in_poses_frame * aux_data_dict["joint_states"][5]).as_matrix())
