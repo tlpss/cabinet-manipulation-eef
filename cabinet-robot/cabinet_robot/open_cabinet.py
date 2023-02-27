@@ -1,5 +1,6 @@
 import time
-from typing import List
+from datetime import datetime
+from typing import List, Union
 
 import numpy as np
 import rerun
@@ -9,8 +10,9 @@ from airo_spatial_algebra import SE3Container
 from airo_typing import HomogeneousMatrixType, TwistType
 from cabinet_robot.joint_estimation import FG_twist_estimation
 from cabinet_robot.robot import FZIControlledRobot
+from cabinet_robot.visualisation import visualize_estimation
 
-rerun.init("cabinet-opener", spawn=True)
+rerun.init(f"cabinet-opener-{datetime.now()}", spawn=True)
 
 
 class CabinetOpener:
@@ -21,35 +23,60 @@ class CabinetOpener:
         self.gripper = gripper
         self.gripper_poses = []
         self.n_steps = 10
-        self.step_size = 0.02
+        self.joint_configuration_step_delta = 0.005
         self.initial_gripper_pose = None
+        self.estimation_results = None
+        self.visualize = True
 
     def open_grasped_cabinet(self):
 
         self.initial_gripper_pose = self.robot.get_tcp_pose()
+
         # determine initial joint estimation
-        # as a revolute joint between the handle and the robot base
+        # first try: as a revolute joint between the handle and the robot base
+        # now: emulate the normals by assuming that the grasp orientation is such that -Z is away from the door.
         self.gripper_poses.append(self.initial_gripper_pose)
-        estimated_twist_translation = -SE3Container.from_homogeneous_matrix(self.initial_gripper_pose).translation
+
+        # estimated_twist_translation = -SE3Container.from_homogeneous_matrix(self.initial_gripper_pose).translation
+        estimated_twist_translation = np.array(
+            [0, 0, -1.0]
+        )  # TODO: this is a hack, should be determined from the door plane normal?
         estimated_twist_rotation = np.zeros(3)
         estimated_twist: TwistType = np.concatenate((estimated_twist_translation, estimated_twist_rotation))
+        twist_in_base_pose = self.initial_gripper_pose
+        q_joint = 0.0
 
         while not self._is_cabinet_open() and self._is_grasped_heuristic():
-            # determine current joint configuration (the q of the Twist)
-            q_joint = self.get_joint_q_from_gripper_pose_and_twist(
-                self.initial_gripper_pose, self.robot.get_tcp_pose(), estimated_twist
-            )
+            # safety check - is robot controller still up and running?
+            if not self.robot._get_active_FZI_controller() == self.robot.FZI_ADMITTANCE_CONTROLLER_NAME:
+                raise Exception("Admittance controller is not running")
+
+            # if there hase been a joint estimation (always except for the first iteration)
+            # determine an appropriate step_size (both magnitude and direction)
+            if self.estimation_results is not None:
+                estimated_joint_states = self.estimation_results.aux_data["joint_states"]
+                step_size_direction = np.sign(estimated_joint_states[-1] - estimated_joint_states[0])
+                # TODO: should this only depend on the norm of the twist?
+                # use fixed value for now.
+                self.joint_configuration_step_delta = 0.005 * step_size_direction
+
+            # TODO: maybe this should not be a fixed amount of steps, but depend on the difference between the setpoint and the actual TCP pose
+            # or equivalently the TCP wrench.
             for i in range(self.n_steps):
                 # take a small step in the joint configuration
-                q_joint = q_joint + self.step_size
+                q_joint = q_joint + self.joint_configuration_step_delta
+
+                # TODO: add safety check with distance between current pose and new setpoint pose. If distance is too large, stop
                 new_setpoint_pose = self.get_gripper_pose_from_joint_q_and_twist(
-                    q_joint, self.initial_gripper_pose, estimated_twist
+                    q_joint, twist_in_base_pose, estimated_twist
                 )
+                if self.visualize:
+                    rerun.log_point("robot_setpoint", new_setpoint_pose[:3, 3], color=(255, 255, 0), radius=0.005)
+
                 self.robot.set_target_pose(new_setpoint_pose)
                 # wait for robot to reach the setpoint
-                time.sleep(
-                    3.0
-                )  # TODO: check for changes in the TCP pose to determine if the robot has reached a stable pose
+                # TODO: check for changes in the TCP pose to determine if the robot has reached a stable pose
+                time.sleep(3.0)
 
                 # if force has become too high or gripper no longer has contact, stop
                 if self._is_force_too_high() or not self._is_grasped_heuristic():
@@ -57,14 +84,17 @@ class CabinetOpener:
                 # collect the gripper pose
                 self.gripper_poses.append(self.robot.get_tcp_pose())
 
+            if self.visualize:
+                rerun.log_points(
+                    "gripper_poses",
+                    np.array(self.gripper_poses)[:, :3, 3],
+                    np.zeros((len(self.gripper_poses), 3), dtype=np.uint8),
+                    0.01,
+                )
+
             # make new estimate of the articulation
-            rerun.log_points(
-                "gripper_poses",
-                positions=np.array(self.gripper_poses)[:, :3, 3],
-                colors=np.zeros((len(self.gripper_poses), 3), dtype=np.uint8),
-                radii=0.01,
-            )
-            estimated_twist = self.estimate_twist(self.gripper_poses)
+            # TODO: should all points be used? maybe after a certain number of points it is good enough to sample only a subset of the points?
+            estimated_twist, twist_in_base_pose, q_joint = self.estimate_twist(self.gripper_poses)
 
     def _is_grasped_heuristic(self) -> bool:
         # TODO: check gripper and check if force is not zero
@@ -79,36 +109,22 @@ class CabinetOpener:
         # set a q_max? but this highly depends on the twist ofc. should the twist be normalized then?
         return False
 
-    def estimate_twist(self, poses: List[HomogeneousMatrixType]) -> TwistType:
-        twist_joint_params, aux_data = FG_twist_estimation(poses, 0.005, 0.05)
-        twist = twist_joint_params.twist
-        twist_frame = twist_joint_params.base_transform
-        twist_in_poses_frame = sm.tr2adjoint(np.asarray(twist_frame.as_matrix())) @ np.asarray(twist)
-        return twist_in_poses_frame
+    def estimate_twist(self, poses: List[HomogeneousMatrixType]) -> Union[TwistType, HomogeneousMatrixType, float]:
+        estimation_results = FG_twist_estimation(poses, 0.005, 0.05)
+        self.estimation_results = estimation_results
+        twist = np.asarray(estimation_results.twist)
+        twist_frame_in_base_pose = np.asarray(estimation_results.twist_frame_in_base_pose.as_matrix())
 
-    def get_joint_q_from_gripper_pose_and_twist(
-        self,
-        initial_gripper_pose: HomogeneousMatrixType,
-        current_gripper_pose: HomogeneousMatrixType,
-        joint_twist: TwistType,
-    ) -> float:
-        current_twist = sm.trlog(np.linalg.inv(initial_gripper_pose) @ current_gripper_pose, twist=True)
-
-        # if the joint twist component is zero, we cannot divide by it and we consider the current twist value to be numerical errors if it is not equal to zero.
-        # so we set it to a very high value, to basically mask it out in the calculation of q
-        joint_twist = np.copy(joint_twist)  # make copy before modifying
-        joint_twist[np.where(joint_twist == 0)] = 1e6
-        q = current_twist / joint_twist
-        q = np.mean(q)  # average over numerical errors
-        # TODO: check if the errors are not too high?
-        return q
+        if self.visualize:
+            visualize_estimation(estimation_results)
+        return twist, twist_frame_in_base_pose, estimation_results.current_joint_configuration
 
     def get_gripper_pose_from_joint_q_and_twist(
-        self, q: float, initial_gripper_pose: HomogeneousMatrixType, twist: TwistType
+        self, q: float, twist_in_base_pose: HomogeneousMatrixType, twist: TwistType
     ) -> HomogeneousMatrixType:
         # spatialmath lib uses rotation first, so we need to roll the array to get the rotation first
         # as our convention is rotation last
-        pose = initial_gripper_pose @ sm.trexp(q * twist)
+        pose = twist_in_base_pose @ sm.trexp(q * twist)
         return pose
 
     def grasp_cabinet_handle(self, grasp_pose: HomogeneousMatrixType) -> None:
@@ -128,7 +144,7 @@ if __name__ == "__main__":
 
     cabinet_opener = CabinetOpener(robot, gripper)
     home_pose = SE3Container.from_euler_angles_and_translation(
-        np.array([0, np.pi / 2, 0]), np.array([0.4, -0.2, 0.2])
+        np.array([0, np.pi / 2, 0]), np.array([0.5, -0.2, 0.2])
     ).homogeneous_matrix
     robot.move_to_pose(home_pose)
 

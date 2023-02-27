@@ -1,7 +1,9 @@
+import dataclasses
 from typing import List
 
 import articulation_estimation.factor_graph as factor_graph
 import articulation_estimation.helpers as helpers
+import jax.numpy as jnp
 import numpy as onp
 from airo_typing import HomogeneousMatrixType
 from articulation_estimation import baseline
@@ -9,6 +11,14 @@ from articulation_estimation.baseline.joints import TwistJointParameters
 from articulation_estimation.factor_graph.helpers import JointFormulation
 from articulation_estimation.sample_generator import JointConnection
 from jaxlie import SE3 as jaxlie_SE3
+
+
+@dataclasses.dataclass
+class EstimationResults:
+    twist: jnp.ndarray  # twist in the twist frame
+    twist_frame_in_base_pose: jaxlie_SE3  # twist frame in the frame in which the part poses are expressed (base frame)
+    current_joint_configuration: float
+    aux_data: dict
 
 
 def build_graph(num_samples: int, stddev_pos, stddev_ori):
@@ -63,7 +73,13 @@ def optimize_graph(
 
     graph.update_poses(poses_named, pose_variance, use_huber=use_huber)
     twist, base_transform, aux_data = graph.solve_graph(max_restarts=max_restarts, aux_data_in=aux_data)
-    return twist, base_transform, aux_data
+    result = EstimationResults(
+        twist=twist,
+        twist_frame_in_base_pose=base_transform,
+        current_joint_configuration=float(aux_data["joint_states"][-1]),
+        aux_data=aux_data,
+    )
+    return result
 
 
 def FG_twist_estimation(part_poses: List[HomogeneousMatrixType], stddev_pos, stddev_ori):
@@ -76,7 +92,7 @@ def FG_twist_estimation(part_poses: List[HomogeneousMatrixType], stddev_pos, std
     body_poses = [part_poses[0]] * len(part_poses)
 
     poses = {"first": body_poses, "second": part_poses}
-    twist_pred, transform_pred, aux_data_fg_pred = optimize_graph(
+    estimation_results = optimize_graph(
         graph,
         poses,
         variance_pos=stddev_pos * stddev_pos,
@@ -85,10 +101,13 @@ def FG_twist_estimation(part_poses: List[HomogeneousMatrixType], stddev_pos, std
     )
 
     estimation = TwistJointParameters(
-        helpers.mean_pose(aux_data_fg_pred["latent_poses"]["first"]) @ transform_pred,
-        twist_pred,
+        helpers.mean_pose(estimation_results.aux_data["latent_poses"]["first"])
+        @ estimation_results.twist_frame_in_base_pose,
+        estimation_results.twist,
     )
-    return estimation, aux_data_fg_pred
+
+    estimation_results.twist_frame_in_base_pose = estimation.base_transform
+    return estimation_results
 
 
 def sturm_twist_estimation(part_poses, stddev_pos, stddev_ori):
@@ -110,41 +129,6 @@ def sturm_twist_estimation(part_poses, stddev_pos, stddev_ori):
         helpers.mean_pose(aux_data_sturm["latent_poses"]["first"]) @ base_transform_sturm,
         twist_sturm,
     )
-    return estimation, aux_data_sturm
-
-
-if __name__ == "__main__":
-
-    import jax
-    import numpy as np
-
-    jax.config.update("jax_disable_jit", True)
-
-    original_part_pose = np.eye(4)
-    part_poses = [np.copy(original_part_pose)]
-    for _ in range(20):
-        original_part_pose[0, 3] += 0.01
-        part_poses.append(np.copy(original_part_pose))
-
-    results, aux_data_dict = sturm_twist_estimation(part_poses, stddev_pos=0.005, stddev_ori=0.02)
-    print(f"{results.twist=}")
-    print(f"{results.base_transform=}")
-    print(aux_data_dict["latent_poses"]["first"][0])
-    print(aux_data_dict["latent_poses"]["second"][0])
-    print(aux_data_dict["joint_states"][0])
-
-    # test: latent_pose second[0] = base_transform @ exp(twist * joint_state[0])
-
-    print(
-        results.base_transform.as_matrix()
-        @ jaxlie_SE3.exp(results.twist * aux_data_dict["joint_states"][0]).as_matrix()
-    )
-    print(
-        results.base_transform.as_matrix()
-        @ jaxlie_SE3.exp(results.twist * aux_data_dict["joint_states"][5]).as_matrix()
-    )
-
-    import spatialmath.base as sm
-
-    twist_in_poses_frame = sm.tr2adjoint(np.asarray(results.base_transform.as_matrix())) @ np.asarray(results.twist)
-    print(jaxlie_SE3.exp(twist_in_poses_frame * aux_data_dict["joint_states"][5]).as_matrix())
+    raise NotImplementedError
+    # TODO: same format as FG_twist_estimation
+    return estimation
