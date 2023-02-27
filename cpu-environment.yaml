@@ -1,0 +1,55 @@
+# in this yaml you should add dependencies that are not included in the python packages
+# (or that you want to install anyways such as torch to install cuda w/ conda)
+# also make sure to install the local packages with the "-e" prefix
+# to create an environment: conda create env -f environment.yaml
+# to update: conda env update -f environment.yaml
+name: cabinet-manipulation-cpu
+channels:
+  - conda-forge
+  - nvidia
+dependencies:
+  - python=3.8 # 3.8 needed for the sturm wheel
+  #- cudatoolkit=11.4
+  #- cudnn=8.2
+  #- jaxlib=*=*cuda*
+  - jaxlib
+  - jax
+  #- cuda-nvcc
+  - pip
+  - pip:
+    - numpy
+    - matplotlib
+    - ur-rtde
+    - wandb
+    - imageio
+    - pytest
+    - pre-commit
+    - mypy
+    - darglint
+    - https://github.com/rerun-io/rerun/releases/download/latest/rerun_sdk-0.2.0+df920dc.1-cp38-abi3-manylinux_2_31_x86_64.whl # pypi release broken
+    - -e cabinet-robot/
+    - -e airo-mono/airo-typing
+    - -e airo-mono/airo-spatial-algebra
+    - -e airo-mono/airo-robots
+    #- -r cat-ind-fg/requirements.txt
+    - -e cat-ind-fg/
+    ## manual copy of the dependencies
+    - dcargs==0.0.12
+    - flax==0.3.4
+    - jax_dataclasses==1.5.1
+    - jaxlie==1.3.0
+    - matplotlib==3.4.1
+    - networkx==2.6.2
+    - numpy==1.21.1
+    - open3d==0.11.2
+    - overrides==6.0.1
+    - pandas==1.2.4
+    - python_igraph==0.10.3
+    - PyYAML==6.0
+    - scipy==1.6.3
+    - seaborn==0.11.1
+    - tensorflow==2.7.0
+    - scikit-learn
+    - git+ssh://git@github.com/brentyi/jaxfg.git@069e124b23029d384ba026bc29a75ad741ce31a9
+    - cat-ind-fg/sturm_articulation-0.1.1-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+    - protobuf==3.20.1 # avoid type error in TF: https://stackoverflow.com/questions/72441758/typeerror-descriptors-cannot-not-be-created-directly
