@@ -51,4 +51,4 @@ dependencies:
     - scikit-learn
     - git+ssh://git@github.com/brentyi/jaxfg.git@069e124b23029d384ba026bc29a75ad741ce31a9
     - cat-ind-fg/sturm_articulation-0.1.1-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
-    - protobuf==3.20.1 # avoid typeerror in TF: https://stackoverflow.com/questions/72441758/typeerror-descriptors-cannot-not-be-created-directly 
+    - protobuf==3.20.1 # avoid type error in TF: https://stackoverflow.com/questions/72441758/typeerror-descriptors-cannot-not-be-created-directly

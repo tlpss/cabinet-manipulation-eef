@@ -20,11 +20,11 @@ To run the code on your robot setup:
 **using prebuilt docker image**
 - run `xhost + local:` to share the X11 socket with the docker container
 - start the docker container with the ROS stack in a separate terminal:
-`docker run  -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix --gpus all -p 10.42.0.1:50002:50002 -p 127.0.0.1:9090:9090 -it tlpss/ros-ure-fzi-admittance:galactic`. This will map the ROS2 webbridge to the host machine on port 9090. This is required to communicate with the ROS2 nodes from outside the docker container. It will also map the port for the UR driver to the host machine on port 50002. This is required to communicate with the UR robot. The first two configurations are to share the display so that RVIZ can be used to visualize the robot. 
+`docker run  -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix --gpus all -p 10.42.0.1:50002:50002 -p 127.0.0.1:9090:9090 -it tlpss/ros-ure-fzi-admittance:galactic`. This will map the ROS2 webbridge to the host machine on port 9090. This is required to communicate with the ROS2 nodes from outside the docker container. It will also map the port for the UR driver to the host machine on port 50002. This is required to communicate with the UR robot. The first two configurations are to share the display so that RVIZ can be used to visualize the robot.
 The UR in RVIZ should have the same pose as the real UR robot. Check for any errors in the launch logs as well.
 
 - in the docker container terminal run `bash scripts/ure-fzi-start-script.sh` to start the ROS nodes. RVIZ should now spin up and the visualized robot should be in the same configuration as your real robot.
-- run the external control program on the polyscope, this should show the following logs in the container: 
+- run the external control program on the polyscope, this should show the following logs in the container:
 ```
 [ur_ros2_control_node-1] [INFO] [1677166593.336590025] [UR_Client_Library]: Robot requested program
 [ur_ros2_control_node-1] [INFO] [1677166593.336708205] [UR_Client_Library]: Sent program to robot
@@ -51,7 +51,7 @@ The docker container runs the following ROS packages
 `docker build ROS/ -t ros-fzi-admittance`
 
 #### pushing image to dockerhub
-to persist the image, push it to dockerhub. If you don't do this the behavior of the image might change due to updates in the dependencies... 
+to persist the image, push it to dockerhub. If you don't do this the behavior of the image might change due to updates in the dependencies...
 
 (only for me)
 
@@ -60,7 +60,7 @@ to persist the image, push it to dockerhub. If you don't do this the behavior of
 
 
 #### note on docker networking
-Note: using `network=host` in docker, as you will often see online, caused me some issues. Nodes were not able to communicate with eachother, even within the same container. I'm not exactly sure why this is the case, but I'm guessing it has something to to with the multiple network interfaces on the workstation as I did not have these issues on my laptop. Therefore I opted for the bridge network and manually mapped the relevant ports. 
+Note: using `network=host` in docker, as you will often see online, caused me some issues. Nodes were not able to communicate with eachother, even within the same container. I'm not exactly sure why this is the case, but I'm guessing it has something to to with the multiple network interfaces on the workstation as I did not have these issues on my laptop. Therefore I opted for the bridge network and manually mapped the relevant ports.
 
 #### note on ROS humble
 when using the same launch file with ros humble, the `controller_manager` crashes without any error message.
