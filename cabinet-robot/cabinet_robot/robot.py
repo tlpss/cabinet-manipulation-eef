@@ -9,6 +9,7 @@ from airo_spatial_algebra import SE3Container
 from airo_typing import HomogeneousMatrixType, WrenchType
 from roslibpy import Message, Ros, Service, Topic
 from roslibpy.core import UserDict
+from spatialmath import base as sm
 
 
 class ROS2Header(UserDict):
@@ -127,6 +128,8 @@ class FZIControlledRobot:
 
         tool0_pose = tcp_pose @ np.linalg.inv(self.tcp_in_flange_frame)
 
+        # make sure that spatialmath lib considers the pose to be a valid SE3 pose
+        tool0_pose = sm.trnorm(tool0_pose)
         message = self._create_stamped_pose_message_from_pose(tool0_pose)
         self._admittance_target_pose_publisher.publish(Message(message))
 
@@ -179,7 +182,16 @@ class FZIControlledRobot:
     def _get_active_FZI_controller(self) -> typing.Union[None, str]:
         """returns the name of the active FZI controller, or None if no FZI controller is active."""
         request = roslibpy.ServiceRequest({})
-        response = self.control_manager_list_controllers_service.call(request, callback=None, timeout=10)
+        attempts = 3
+        for attempt in range(attempts):
+            try:
+                response = self.control_manager_list_controllers_service.call(request, callback=None, timeout=10)
+            except roslibpy.core.ServiceException:
+                warnings.warn(f"could not switch controllers in the {attempt}/{attempts} th attempt")
+                time.sleep(0.5)
+                if attempt == attempts - 1:
+                    raise ConnectionError("Could not query the active FZI controller.")
+
         controllers = response["controller"]
         active_controllers = [controller["name"] for controller in controllers if controller["state"] == "active"]
         active_FZI_controllers = [
@@ -199,6 +211,9 @@ class FZIControlledRobot:
 
         Args:
             controller_to_start (str): the name of the controller to start. Must be one of the FZI_CONTROLLERS.
+
+        Raises:
+            ConnectionError: if the service call to the controller_manager service fails.
         """
         assert controller_to_start in self.FZI_CONTROLLERS, f"Unknown controller {controller_to_start}"
         active_controller = self._get_active_FZI_controller()
@@ -216,23 +231,34 @@ class FZIControlledRobot:
                 "strictness": 2,
             }
         )
-        self.control_manager_switch_service.call(request, callback=None, timeout=10)
+        attempts = 3
+        for attempt in range(attempts):
+            try:
+                self.control_manager_switch_service.call(request, callback=None, timeout=10)
+            except roslibpy.core.ServiceException:
+                warnings.warn(f"could not switch controllers in the {attempt}/{attempts} th attempt ")
+                time.sleep(0.5)
+                if attempt == attempts - 1:
+                    raise ConnectionError("Could not query the active FZI controller.")
+
         self.active_controller = controller_to_start
 
 
 if __name__ == "__main__":
     robot = FZIControlledRobot()
-    pose = SE3Container.from_euler_angles_and_translation([0, np.pi, 0], [0.2, -0.3, 0.1]).homogeneous_matrix
-    print(robot.get_tcp_pose())
-    print(robot.get_wrench())
-    robot.move_to_pose(pose)
-    print(robot.get_wrench())
-    robot.switch_to_admittance_control()
     print(robot._get_active_FZI_controller())
-    # time.sleep(4)
-    pose[0, 3] += 0.1
-    robot.set_target_pose(pose)
-    time.sleep(10)
-    pose[1, 3] += 0.1
-    robot.move_to_pose(pose)
-    print(robot.get_tcp_pose())
+    robot.switch_to_admittance_control()
+    # pose = SE3Container.from_euler_angles_and_translation([0, np.pi, 0], [0.2, -0.3, 0.1]).homogeneous_matrix
+    # print(robot.get_tcp_pose())
+    # print(robot.get_wrench())
+    # robot.move_to_pose(pose)
+    # print(robot.get_wrench())
+    # robot.switch_to_admittance_control()
+    # print(robot._get_active_FZI_controller())
+    # # time.sleep(4)
+    # pose[0, 3] += 0.1
+    # robot.set_target_pose(pose)
+    # time.sleep(10)
+    # pose[1, 3] += 0.1
+    # robot.move_to_pose(pose)
+    # print(robot.get_tcp_pose())
