@@ -11,6 +11,8 @@ from airo_typing import HomogeneousMatrixType, TwistType
 from cabinet_robot.joint_estimation import FG_twist_estimation
 from cabinet_robot.robot import FZIControlledRobot
 from cabinet_robot.visualisation import visualize_estimation
+from airo_camera_toolkit.cameras.zed2i import Zed2i
+from cabinet_robot.camera_calibration_utils import get_camera_pose_in_robot_frame
 
 rerun.init(f"cabinet-opener-{datetime.now()}", spawn=True)
 
@@ -23,10 +25,13 @@ class CabinetOpener:
         self.gripper = gripper
         self.gripper_poses = []
         self.n_steps = 10
-        self.joint_configuration_step_delta = 0.005
+        self.joint_configuration_step_delta = 0.01
         self.initial_gripper_pose = None
         self.estimation_results = None
         self.visualize = True
+        self.camera = Zed2i(resolution=Zed2i.RESOLUTION_720,depth_mode=Zed2i.NEURAL_DEPTH_MODE)
+        self.camera.runtime_params.texture_confidence_threshold = 100
+        self.camera.runtime_params.confidence_threshold = 100
 
     def open_grasped_cabinet(self):
 
@@ -45,8 +50,9 @@ class CabinetOpener:
         estimated_twist: TwistType = np.concatenate((estimated_twist_translation, estimated_twist_rotation))
         twist_in_base_pose = self.initial_gripper_pose
         q_joint = 0.0
-
         while not self._is_cabinet_open() and self._is_grasped_heuristic():
+            check = input("check if the joint estimation is not crazy. Press a key to continue or CTRL+C to abort")
+            print(check)
             # safety check - is robot controller still up and running?
             if not self.robot._get_active_FZI_controller() == self.robot.FZI_ADMITTANCE_CONTROLLER_NAME:
                 raise Exception("Admittance controller is not running")
@@ -71,7 +77,7 @@ class CabinetOpener:
                     q_joint, twist_in_base_pose, estimated_twist
                 )
                 if self.visualize:
-                    rerun.log_point("robot_setpoint", new_setpoint_pose[:3, 3], color=(255, 255, 0), radius=0.005)
+                    rerun.log_point("world/robot_setpoint", new_setpoint_pose[:3, 3], color=(255, 255, 0), radius=0.005)
 
                 self.robot.set_target_pose(new_setpoint_pose)
                 # wait for robot to reach the setpoint
@@ -86,10 +92,10 @@ class CabinetOpener:
 
             if self.visualize:
                 rerun.log_points(
-                    "gripper_poses",
-                    np.array(self.gripper_poses)[:, :3, 3],
-                    np.zeros((len(self.gripper_poses), 3), dtype=np.uint8),
-                    0.01,
+                    "world/gripper_poses",
+                    positions = np.array(self.gripper_poses)[:, :3, 3],
+                    colors = np.zeros((len(self.gripper_poses), 3), dtype=np.uint8),
+                    radii = 0.01,
                 )
 
             # make new estimate of the articulation
@@ -133,6 +139,21 @@ class CabinetOpener:
         time.sleep(2.0)
         self.gripper.close()
 
+    def log_pointcloud(self):
+        rgb = self.camera.get_rgb_image()
+        depth = self.camera.get_depth_image()
+        rerun.log_image("world/camera/rgb", image=rgb)
+
+        rerun.log_image("camera/depth", image=depth)
+        rerun.log_image("camera/rgb", image=rgb)
+
+        pointcloud = self.camera.get_colored_point_cloud()
+        rerun.log_points("world/camera/pointcloud", positions=pointcloud[:,:3], colors=pointcloud[:,3:])
+        camera_pose_in_world = get_camera_pose_in_robot_frame()
+        se3_container = SE3Container.from_homogeneous_matrix(camera_pose_in_world)
+        rerun.log_rigid3("world/camera", child_from_parent=(se3_container.translation, se3_container.orientation_as_quaternion))
+        rerun.log_pinhole("world/camera/rgb", child_from_parent=self.camera.intrinsics_matrix, width=rgb.shape[1], height=rgb.shape[0])
+
 
 if __name__ == "__main__":
     robot_ip = "10.42.0.162"
@@ -141,12 +162,12 @@ if __name__ == "__main__":
     gripper = Robotiq2F85(robot_ip)
     gripper.open()
     gripper.speed = gripper.gripper_specs.min_speed  # so that closing is not too fast and admittance can keep up
-
     cabinet_opener = CabinetOpener(robot, gripper)
     home_pose = SE3Container.from_euler_angles_and_translation(
         np.array([0, np.pi / 2, 0]), np.array([0.5, -0.2, 0.2])
     ).homogeneous_matrix
     robot.move_to_pose(home_pose)
+    cabinet_opener.log_pointcloud()
 
     handle_pose = SE3Container.from_euler_angles_and_translation(
         np.array([0, np.pi / 2, 0]), np.array([0.678, -0.180, 0.193])
