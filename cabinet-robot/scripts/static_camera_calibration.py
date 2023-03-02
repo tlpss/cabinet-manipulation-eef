@@ -105,7 +105,7 @@ def save_calibration(rotation_matrix, translation):
 
 
 if __name__ == "__main__":
-    zed = Zed2i(resolution=Zed2i.RESOLUTION_720)
+    zed = Zed2i(resolution=Zed2i.RESOLUTION_2K)
 
     # Configure custom project-wide InputTransform based on camera, resolution, etc.
     _, h, w = zed.get_rgb_image().shape
@@ -121,13 +121,16 @@ if __name__ == "__main__":
             image, intrinsics_matrix, 0.10, cv2.aruco.DICT_6X6_250, True
         )
         image = draw_center_circle(image)
-
         if rotations:
+            print(rotations[0])
+
             aruco_in_camera_transform = np.eye(4)
             aruco_in_camera_transform[:3, :3] = rotations[0]
             aruco_in_camera_transform[:3, 3] = translations[0]
             world_to_camera = aruco_in_camera_transform
             image = draw_world_axes(image, world_to_camera, intrinsics_matrix)
+
+        image = cv2.resize(image, (1280,720))
 
         cv2.imshow("Camera feed", image)
 
