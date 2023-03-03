@@ -1,5 +1,5 @@
-from concurrent.futures import Future, ThreadPoolExecutor
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from typing import List, Union
 
@@ -58,10 +58,11 @@ class CabinetOpener:
         twist_in_base_pose = self.initial_gripper_pose
         q_joint = 0.0
 
-  
         while not self._is_cabinet_open() and self._is_grasped_heuristic():
             logger.info(f"Estimated twist: {estimated_twist}")
-            check = input("check in rerun if the joint estimation is not crazy. Press a key to continue or CTRL+C to abort")
+            check = input(
+                "check in rerun if the joint estimation is not crazy. Press a key to continue or CTRL+C to abort"
+            )
             print(check)
             # safety check - is robot controller still up and running?
             if not self.robot._get_active_FZI_controller() == self.robot.FZI_ADMITTANCE_CONTROLLER_NAME:
@@ -77,9 +78,9 @@ class CabinetOpener:
                 # use fixed value for now.
                 self.joint_configuration_step_delta = step_size * step_direction
             logger.info(f" {self.joint_configuration_step_delta=}")
-      
+
             # pre-compile the factor graph in a separate thread
-            precompile_future = self._precompile_graph(num_samples = len(self.gripper_poses) + self.n_steps)
+            precompile_future = self._precompile_graph(num_samples=len(self.gripper_poses) + self.n_steps)
             for i in range(self.n_steps):
                 # take a small step in the joint configuration
                 q_joint = q_joint + self.joint_configuration_step_delta
@@ -90,7 +91,7 @@ class CabinetOpener:
                 )
                 if self.visualize:
                     rerun.log_point(
-                        "world/robot_setpoint", new_setpoint_pose[:3, 3], color=(255, 255, 0), radius=0.005
+                        "world/robot_setpoint", new_setpoint_pose[:3, 3], color=(1, 1, 0, 0.7), radius=0.012
                     )
                     rerun.log_image("camera/rgb", self.camera.get_rgb_image())
 
@@ -109,13 +110,13 @@ class CabinetOpener:
                 rerun.log_points(
                     "world/gripper_poses",
                     positions=np.array(self.gripper_poses)[:, :3, 3],
-                    colors=[150,0,0],
+                    colors=[150, 0, 0],
                     radii=0.01,
                 )
 
             # make new estimate of the articulation
             # TODO: should all points be used? maybe after a certain number of points it is good enough to sample only a subset of the points?
-            
+
             # wait for the precompiled graph to be ready
             logger.debug("Waiting for precompiled graph to be ready")
             precompile_future.result(40)
@@ -126,7 +127,6 @@ class CabinetOpener:
     def _precompile_graph(self, num_samples: int) -> Future:
         return self.thread_pool.submit(self.FG_estimator.get_compiled_graph, num_samples)
 
-            
     def _is_grasped_heuristic(self) -> bool:
         # TODO: check gripper and check if force is not zero
         return True
@@ -198,16 +198,21 @@ if __name__ == "__main__":
     gripper.speed = gripper.gripper_specs.min_speed  # so that closing is not too fast and admittance can keep up
     cabinet_opener = CabinetOpener(robot, gripper)
 
-    rotation_matrix = np.array([
-        [0.0, 0.0, 1.0],
-        [-1.0, 0.0, 0.0],
-        [0.0, -1.0, 0.0],
-    ])
-    home_pose = SE3Container.from_rotation_matrix_and_translation(rotation_matrix, np.array([0.4, -0.2, 0.2])).homogeneous_matrix
+    rotation_matrix = np.array(
+        [
+            [0.0, 0.0, 1.0],
+            [-1.0, 0.0, 0.0],
+            [0.0, -1.0, 0.0],
+        ]
+    )
+    home_pose = SE3Container.from_rotation_matrix_and_translation(
+        rotation_matrix, np.array([0.4, -0.2, 0.2])
+    ).homogeneous_matrix
     robot.move_to_pose(home_pose)
     cabinet_opener.log_pointcloud()
 
-    handle_pose = SE3Container.from_rotation_matrix_and_translation(rotation_matrix, np.array([0.7, -0.180, 0.193])
+    handle_pose = SE3Container.from_rotation_matrix_and_translation(
+        rotation_matrix, np.array([0.69, -0.180, 0.193])
     ).homogeneous_matrix
     cabinet_opener.grasp_cabinet_handle(handle_pose)
     cabinet_opener.open_grasped_cabinet()

@@ -12,10 +12,14 @@ if __name__ == "__main__":
     gripper = Robotiq2F85(robot_ip)
     gripper.open()
     time.sleep(5)
-    rotation_matrix = np.array([
-        [0.0, 0.0, 1.0],
-        [-1.0, 0.0, 0.0],
-        [0.0, -1.0, 0.0],
-    ])
-    home_pose = SE3Container.from_rotation_matrix_and_translation(rotation_matrix, np.array([0.4, -0.2, 0.2])).homogeneous_matrix
+    rotation_matrix = np.array(
+        [
+            [0.0, 0.0, 1.0],
+            [-1.0, 0.0, 0.0],
+            [0.0, -1.0, 0.0],
+        ]
+    )
+    home_pose = SE3Container.from_rotation_matrix_and_translation(
+        rotation_matrix, np.array([0.4, -0.2, 0.2])
+    ).homogeneous_matrix
     robot.move_to_pose(home_pose)
