@@ -5,14 +5,14 @@ from typing import List, Union
 import numpy as np
 import rerun
 import spatialmath.base as sm
+from airo_camera_toolkit.cameras.zed2i import Zed2i
 from airo_robots.grippers.hardware.robotiq_2f85_tcp import Robotiq2F85
 from airo_spatial_algebra import SE3Container
 from airo_typing import HomogeneousMatrixType, TwistType
-from cabinet_robot.joint_estimation import FG_twist_estimation
+from cabinet_robot.camera_calibration_utils import get_camera_pose_in_robot_frame
+from cabinet_robot.joint_estimation import FGJointEstimator
 from cabinet_robot.robot import FZIControlledRobot
 from cabinet_robot.visualisation import visualize_estimation
-from airo_camera_toolkit.cameras.zed2i import Zed2i
-from cabinet_robot.camera_calibration_utils import get_camera_pose_in_robot_frame
 
 rerun.init(f"cabinet-opener-{datetime.now()}", spawn=True)
 
@@ -29,9 +29,11 @@ class CabinetOpener:
         self.initial_gripper_pose = None
         self.estimation_results = None
         self.visualize = True
-        self.camera = Zed2i(resolution=Zed2i.RESOLUTION_720,depth_mode=Zed2i.NEURAL_DEPTH_MODE)
+        self.camera = Zed2i(resolution=Zed2i.RESOLUTION_720, depth_mode=Zed2i.NEURAL_DEPTH_MODE)
         self.camera.runtime_params.texture_confidence_threshold = 100
         self.camera.runtime_params.confidence_threshold = 100
+
+        self.FG_estimator = FGJointEstimator()
 
     def open_grasped_cabinet(self):
 
@@ -66,8 +68,8 @@ class CabinetOpener:
                 # use fixed value for now.
                 self.joint_configuration_step_delta = 0.005 * step_size_direction
 
-            # TODO: maybe this should not be a fixed amount of steps, but depend on the difference between the setpoint and the actual TCP pose
-            # or equivalently the TCP wrench.
+            # start compiling the factor graph
+            self.FG_estimator._build_graph()
             for i in range(self.n_steps):
                 # take a small step in the joint configuration
                 q_joint = q_joint + self.joint_configuration_step_delta
@@ -77,7 +79,9 @@ class CabinetOpener:
                     q_joint, twist_in_base_pose, estimated_twist
                 )
                 if self.visualize:
-                    rerun.log_point("world/robot_setpoint", new_setpoint_pose[:3, 3], color=(255, 255, 0), radius=0.005)
+                    rerun.log_point(
+                        "world/robot_setpoint", new_setpoint_pose[:3, 3], color=(255, 255, 0), radius=0.005
+                    )
 
                 self.robot.set_target_pose(new_setpoint_pose)
                 # wait for robot to reach the setpoint
@@ -93,9 +97,9 @@ class CabinetOpener:
             if self.visualize:
                 rerun.log_points(
                     "world/gripper_poses",
-                    positions = np.array(self.gripper_poses)[:, :3, 3],
-                    colors = np.zeros((len(self.gripper_poses), 3), dtype=np.uint8),
-                    radii = 0.01,
+                    positions=np.array(self.gripper_poses)[:, :3, 3],
+                    colors=np.zeros((len(self.gripper_poses), 3), dtype=np.uint8),
+                    radii=0.01,
                 )
 
             # make new estimate of the articulation
@@ -148,11 +152,18 @@ class CabinetOpener:
         rerun.log_image("camera/rgb", image=rgb)
 
         pointcloud = self.camera.get_colored_point_cloud()
-        rerun.log_points("world/camera/pointcloud", positions=pointcloud[:,:3], colors=pointcloud[:,3:])
+        rerun.log_points("world/camera/pointcloud", positions=pointcloud[:, :3], colors=pointcloud[:, 3:])
         camera_pose_in_world = get_camera_pose_in_robot_frame()
         se3_container = SE3Container.from_homogeneous_matrix(camera_pose_in_world)
-        rerun.log_rigid3("world/camera", child_from_parent=(se3_container.translation, se3_container.orientation_as_quaternion))
-        rerun.log_pinhole("world/camera/rgb", child_from_parent=self.camera.intrinsics_matrix, width=rgb.shape[1], height=rgb.shape[0])
+        rerun.log_rigid3(
+            "world/camera", child_from_parent=(se3_container.translation, se3_container.orientation_as_quaternion)
+        )
+        rerun.log_pinhole(
+            "world/camera/rgb",
+            child_from_parent=self.camera.intrinsics_matrix,
+            width=rgb.shape[1],
+            height=rgb.shape[0],
+        )
 
 
 if __name__ == "__main__":

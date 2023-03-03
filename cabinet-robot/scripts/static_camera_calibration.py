@@ -130,7 +130,7 @@ if __name__ == "__main__":
             world_to_camera = aruco_in_camera_transform
             image = draw_world_axes(image, world_to_camera, intrinsics_matrix)
 
-        image = cv2.resize(image, (1280,720))
+        image = cv2.resize(image, (1280, 720))
 
         cv2.imshow("Camera feed", image)
 

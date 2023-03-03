@@ -32,6 +32,3 @@ def visualize_estimation(estimation: EstimationResults):
 
     log_points("world/estimated_latent_poses", estimated_latent_poses[:, :3, 3], [255, 0, 0], 0.01)
     log_points("world/estimated_future_latent_poses", estimated_future_latent_poses[:, :3, 3], [0, 255, 0], 0.01)
-
-
-    
