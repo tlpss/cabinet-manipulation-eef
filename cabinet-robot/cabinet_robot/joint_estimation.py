@@ -5,6 +5,7 @@ import articulation_estimation.factor_graph as factor_graph
 import articulation_estimation.helpers as helpers
 import jax.numpy as jnp
 import numpy as onp
+import numpy as np
 from airo_typing import HomogeneousMatrixType
 from articulation_estimation import baseline
 from articulation_estimation.baseline.joints import TwistJointParameters
@@ -21,93 +22,120 @@ class EstimationResults:
     aux_data: dict
 
 
-def build_graph(num_samples: int, stddev_pos, stddev_ori):
+class FGJointEstimator:
+    """Factor graph based joint estimation, wraps the cat-ind-fg codebase"""
 
-    structure = {"first_second": JointConnection(from_id="first", to_id="second", via_id="first_second")}
-    factor_graph_options = factor_graph.graph.GraphOptions(
-        observe_transformation=False,
-        observe_part_poses=True,
-        observe_part_pose_betweens=False,
-        observe_part_centers=False,
-    )
-    joint_formulation = {"first_second": JointFormulation.GeneralTwist}
+    def __init__(self):
+        self.compiled_graphs_cache = {}
+        self.trans_noise_stddev = 0.005
+        self.rot_noise_stddev = 0.05
 
-    graph: factor_graph.graph.Graph = factor_graph.graph.Graph()
-    variance_exp_factor = onp.concatenate(
-        (
-            onp.repeat(stddev_pos**2, repeats=3),
-            onp.repeat(stddev_ori**2, repeats=3),
+    def _build_graph(self, num_samples: int):
+        """build the JAX factor graph for the required number of data samples"""
+        structure = {"first_second": JointConnection(from_id="first", to_id="second", via_id="first_second")}
+        factor_graph_options = factor_graph.graph.GraphOptions(
+            observe_transformation=False,
+            observe_part_poses=True,
+            observe_part_pose_betweens=False,
+            observe_part_centers=False,
         )
-    )
-    graph.build_graph(
-        num_samples,
-        structure,
-        factor_graph_options,
-        joint_formulation,
-        variance_exp_factor=variance_exp_factor,
-    )
-    return graph
+        joint_formulation = {"first_second": JointFormulation.GeneralTwist}
 
-
-def optimize_graph(
-    graph: factor_graph.graph.Graph,
-    poses_named,
-    variance_pos=0.005,
-    variance_ori=0.02,
-    verbose=False,
-    max_restarts=2,
-    aux_data_in={},
-    use_huber=False,
-):
-    # Copy dict!
-    aux_data = aux_data_in.copy()
-    # if not "best_assignment" in aux_data.keys():
-    #         aux_data["best_assignment"] = None
-
-    pose_variance = onp.concatenate(
-        (
-            onp.repeat(variance_pos, repeats=3),
-            onp.repeat(variance_ori, repeats=3),
+        graph: factor_graph.graph.Graph = factor_graph.graph.Graph()
+        variance_exp_factor = onp.concatenate(
+            (
+                onp.repeat(self.trans_noise_stddev**2, repeats=3),
+                onp.repeat(self.rot_noise_stddev**2, repeats=3),
+            )
         )
-    )
+        graph.build_graph(
+            num_samples,
+            structure,
+            factor_graph_options,
+            joint_formulation,
+            variance_exp_factor=variance_exp_factor,
+        )
+        return graph
 
-    graph.update_poses(poses_named, pose_variance, use_huber=use_huber)
-    twist, base_transform, aux_data = graph.solve_graph(max_restarts=max_restarts, aux_data_in=aux_data)
-    result = EstimationResults(
-        twist=twist,
-        twist_frame_in_base_pose=base_transform,
-        current_joint_configuration=float(aux_data["joint_states"][-1]),
-        aux_data=aux_data,
-    )
-    return result
+    def get_compiled_graph(self, num_samples: int):
+        """Get a compiled graph for the number of samples.
+        Caches compiled graphs for later use.
+        Compilation is triggered by optimizing with dummy poses.
+        You can use this to compile the graph before you start the optimization loop.
+        """
 
+        if num_samples in self.compiled_graphs_cache.keys():
+            print(f"reusing compiled graph for {num_samples} samples")
+            return self.compiled_graphs_cache[num_samples]
+        else:
+            graph = self._build_graph(num_samples)
+            # trigger JIT with dummy poses
+            pose_dict = self._convert_part_poses_to_graph_format([np.eye(4)] * num_samples)
+            self._optimize_graph(graph, pose_dict)
+            # cache compiled graph for later use
+            self.compiled_graphs_cache[num_samples] = graph
+            return graph
 
-def FG_twist_estimation(part_poses: List[HomogeneousMatrixType], stddev_pos, stddev_ori):
-    graph = build_graph(num_samples=len(part_poses), stddev_pos=stddev_pos, stddev_ori=stddev_ori)
+    def _optimize_graph(
+        self,
+        graph: factor_graph.graph.Graph,
+        poses_named,
+        aux_data_in={},
+        use_huber=False,
+    ):
+        """optimize the graph with the given poses and auxiliary data."""
 
-    part_poses = [jaxlie_SE3.from_matrix(pose) for pose in part_poses]
-    # using the initial part pose as body poses
-    # will make the twist in the part pose's initial frame
-    # could also set to the origin
-    body_poses = [part_poses[0]] * len(part_poses)
+        # Copy dict!
+        aux_data = aux_data_in.copy()
+        if "joint_states" not in aux_data.keys():
+            aux_data["joint_states"] = None
 
-    poses = {"first": body_poses, "second": part_poses}
-    estimation_results = optimize_graph(
-        graph,
-        poses,
-        variance_pos=stddev_pos * stddev_pos,
-        variance_ori=stddev_ori * stddev_ori,
-        aux_data_in={"joint_states": None, "latent_poses": None},
-    )
+        pose_variance = onp.concatenate(
+            (
+                onp.repeat(self.trans_noise_stddev**2, repeats=3),
+                onp.repeat(self.rot_noise_stddev**2, repeats=3),
+            )
+        )
 
-    estimation = TwistJointParameters(
-        helpers.mean_pose(estimation_results.aux_data["latent_poses"]["first"])
-        @ estimation_results.twist_frame_in_base_pose,
-        estimation_results.twist,
-    )
+        graph.update_poses(poses_named, pose_variance, use_huber=use_huber)
+        twist, base_transform, aux_data = graph.solve_graph(aux_data_in=aux_data)
+        result = EstimationResults(
+            twist=twist,
+            twist_frame_in_base_pose=base_transform,
+            current_joint_configuration=float(aux_data["joint_states"][-1]),
+            aux_data=aux_data,
+        )
+        return result
 
-    estimation_results.twist_frame_in_base_pose = estimation.base_transform
-    return estimation_results
+    def _convert_part_poses_to_graph_format(self, part_poses: List[HomogeneousMatrixType]):
+        """convenience function to convert a list of part poses to the format expected by the graph."""
+        part_poses = [jaxlie_SE3.from_matrix(pose) for pose in part_poses]
+        # using the initial part pose as body poses
+        # will make the twist in the part pose's initial frame
+        # could also set to the origin
+        body_poses = [part_poses[0]] * len(part_poses)
+        pose_dict = {"first": body_poses, "second": part_poses}
+        return pose_dict
+
+    def estimate_joint_twist(self, part_poses: List[HomogeneousMatrixType]):
+        """Estimate the joint twist from the given part poses. This is the main function of this class."""
+        graph = self.get_compiled_graph(num_samples=len(part_poses))
+        pose_dict = self._convert_part_poses_to_graph_format(part_poses)
+
+        estimation_results = self._optimize_graph(
+            graph,
+            pose_dict,
+            aux_data_in={"joint_states": None, "latent_poses": None},
+        )
+
+        estimation = TwistJointParameters(
+            helpers.mean_pose(estimation_results.aux_data["latent_poses"]["first"])
+            @ estimation_results.twist_frame_in_base_pose,
+            estimation_results.twist,
+        )
+
+        estimation_results.twist_frame_in_base_pose = estimation.base_transform
+        return estimation_results
 
 
 def sturm_twist_estimation(part_poses, stddev_pos, stddev_ori):
