@@ -3,7 +3,6 @@ import rerun
 from cabinet_robot.joint_estimation import EstimationResults
 from spatialmath import base as sm
 
-
 def log_points(name, positions: np.ndarray, color, radius: float):
     """
     positions: Nx3 array
@@ -18,7 +17,7 @@ def log_points(name, positions: np.ndarray, color, radius: float):
 
 def visualize_estimation(estimation: EstimationResults):
     q_values = np.asarray(estimation.aux_data["joint_states"])
-    future_q_values = np.linspace(q_values[-1], q_values[-1] + 3 * (q_values[-1] - q_values[0]), 30)
+    future_q_values = np.linspace(q_values[-1], q_values[-1] + 30*0.005 * np.sign(q_values[-1] - q_values[0]), 30)
 
     estimated_latent_poses = np.stack(
         [np.asarray(m.as_matrix()) for m in estimation.aux_data["latent_poses"]["second"]]
@@ -30,5 +29,5 @@ def visualize_estimation(estimation: EstimationResults):
         ]
     )
 
-    log_points("world/estimated_latent_poses", estimated_latent_poses[:, :3, 3], [255, 0, 0], 0.01)
+    log_points("world/estimated_latent_poses", estimated_latent_poses[:, :3, 3], [0, 255, 20], 0.01)
     log_points("world/estimated_future_latent_poses", estimated_future_latent_poses[:, :3, 3], [0, 255, 0], 0.01)

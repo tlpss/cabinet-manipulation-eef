@@ -1,3 +1,4 @@
+from concurrent.futures import Future, ThreadPoolExecutor
 import time
 from datetime import datetime
 from typing import List, Union
@@ -13,12 +14,15 @@ from cabinet_robot.camera_calibration_utils import get_camera_pose_in_robot_fram
 from cabinet_robot.joint_estimation import FGJointEstimator
 from cabinet_robot.robot import FZIControlledRobot
 from cabinet_robot.visualisation import visualize_estimation
+from loguru import logger
 
 rerun.init(f"cabinet-opener-{datetime.now()}", spawn=True)
 
 
 class CabinetOpener:
     """class to open a cabinet door with a robot by using the TCP poses to perform runtime joint estimation configuration with factor graphs"""
+
+    default_delta_step = 0.005
 
     def __init__(self, robot: FZIControlledRobot, gripper):
         self.robot = robot
@@ -34,6 +38,7 @@ class CabinetOpener:
         self.camera.runtime_params.confidence_threshold = 100
 
         self.FG_estimator = FGJointEstimator()
+        self.thread_pool = ThreadPoolExecutor(max_workers=1)
 
     def open_grasped_cabinet(self):
 
@@ -52,8 +57,11 @@ class CabinetOpener:
         estimated_twist: TwistType = np.concatenate((estimated_twist_translation, estimated_twist_rotation))
         twist_in_base_pose = self.initial_gripper_pose
         q_joint = 0.0
+
+  
         while not self._is_cabinet_open() and self._is_grasped_heuristic():
-            check = input("check if the joint estimation is not crazy. Press a key to continue or CTRL+C to abort")
+            logger.info(f"Estimated twist: {estimated_twist}")
+            check = input("check in rerun if the joint estimation is not crazy. Press a key to continue or CTRL+C to abort")
             print(check)
             # safety check - is robot controller still up and running?
             if not self.robot._get_active_FZI_controller() == self.robot.FZI_ADMITTANCE_CONTROLLER_NAME:
@@ -63,13 +71,15 @@ class CabinetOpener:
             # determine an appropriate step_size (both magnitude and direction)
             if self.estimation_results is not None:
                 estimated_joint_states = self.estimation_results.aux_data["joint_states"]
-                step_size_direction = np.sign(estimated_joint_states[-1] - estimated_joint_states[0])
-                # TODO: should this only depend on the norm of the twist?
+                logger.debug(f" {estimated_joint_states=}")
+                step_direction = np.sign(estimated_joint_states[-1] - estimated_joint_states[0])
+                step_size = np.linalg.norm(estimated_twist) * self.default_delta_step
                 # use fixed value for now.
-                self.joint_configuration_step_delta = 0.005 * step_size_direction
-
-            # start compiling the factor graph
-            self.FG_estimator._build_graph()
+                self.joint_configuration_step_delta = step_size * step_direction
+            logger.info(f" {self.joint_configuration_step_delta=}")
+      
+            # pre-compile the factor graph in a separate thread
+            precompile_future = self._precompile_graph(num_samples = len(self.gripper_poses) + self.n_steps)
             for i in range(self.n_steps):
                 # take a small step in the joint configuration
                 q_joint = q_joint + self.joint_configuration_step_delta
@@ -82,6 +92,7 @@ class CabinetOpener:
                     rerun.log_point(
                         "world/robot_setpoint", new_setpoint_pose[:3, 3], color=(255, 255, 0), radius=0.005
                     )
+                    rerun.log_image("camera/rgb", self.camera.get_rgb_image())
 
                 self.robot.set_target_pose(new_setpoint_pose)
                 # wait for robot to reach the setpoint
@@ -98,14 +109,24 @@ class CabinetOpener:
                 rerun.log_points(
                     "world/gripper_poses",
                     positions=np.array(self.gripper_poses)[:, :3, 3],
-                    colors=np.zeros((len(self.gripper_poses), 3), dtype=np.uint8),
+                    colors=[150,0,0],
                     radii=0.01,
                 )
 
             # make new estimate of the articulation
             # TODO: should all points be used? maybe after a certain number of points it is good enough to sample only a subset of the points?
+            
+            # wait for the precompiled graph to be ready
+            logger.debug("Waiting for precompiled graph to be ready")
+            precompile_future.result(40)
+            logger.debug("Precompiled graph is ready")
             estimated_twist, twist_in_base_pose, q_joint = self.estimate_twist(self.gripper_poses)
+            logger.debug("twist estimation finished")
 
+    def _precompile_graph(self, num_samples: int) -> Future:
+        return self.thread_pool.submit(self.FG_estimator.get_compiled_graph, num_samples)
+
+            
     def _is_grasped_heuristic(self) -> bool:
         # TODO: check gripper and check if force is not zero
         return True
@@ -120,13 +141,15 @@ class CabinetOpener:
         return False
 
     def estimate_twist(self, poses: List[HomogeneousMatrixType]) -> Union[TwistType, HomogeneousMatrixType, float]:
-        estimation_results = FG_twist_estimation(poses, 0.005, 0.05)
+        estimation_results = self.FG_estimator.estimate_joint_twist(poses)
         self.estimation_results = estimation_results
         twist = np.asarray(estimation_results.twist)
         twist_frame_in_base_pose = np.asarray(estimation_results.twist_frame_in_base_pose.as_matrix())
 
         if self.visualize:
             visualize_estimation(estimation_results)
+        logger.info(f"Estimated twist: {twist}")
+        logger.info(f"Estimated twist frame in base pose: {twist_frame_in_base_pose}")
         return twist, twist_frame_in_base_pose, estimation_results.current_joint_configuration
 
     def get_gripper_pose_from_joint_q_and_twist(
@@ -174,14 +197,17 @@ if __name__ == "__main__":
     gripper.open()
     gripper.speed = gripper.gripper_specs.min_speed  # so that closing is not too fast and admittance can keep up
     cabinet_opener = CabinetOpener(robot, gripper)
-    home_pose = SE3Container.from_euler_angles_and_translation(
-        np.array([0, np.pi / 2, 0]), np.array([0.5, -0.2, 0.2])
-    ).homogeneous_matrix
+
+    rotation_matrix = np.array([
+        [0.0, 0.0, 1.0],
+        [-1.0, 0.0, 0.0],
+        [0.0, -1.0, 0.0],
+    ])
+    home_pose = SE3Container.from_rotation_matrix_and_translation(rotation_matrix, np.array([0.4, -0.2, 0.2])).homogeneous_matrix
     robot.move_to_pose(home_pose)
     cabinet_opener.log_pointcloud()
 
-    handle_pose = SE3Container.from_euler_angles_and_translation(
-        np.array([0, np.pi / 2, 0]), np.array([0.678, -0.180, 0.193])
+    handle_pose = SE3Container.from_rotation_matrix_and_translation(rotation_matrix, np.array([0.7, -0.180, 0.193])
     ).homogeneous_matrix
     cabinet_opener.grasp_cabinet_handle(handle_pose)
     cabinet_opener.open_grasped_cabinet()
