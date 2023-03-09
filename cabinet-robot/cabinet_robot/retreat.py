@@ -11,7 +11,7 @@ if __name__ == "__main__":
     robot = FZIControlledRobot()
     gripper = Robotiq2F85(robot_ip)
     gripper.open()
-    time.sleep(5)
+    time.sleep(2)
     rotation_matrix = np.array(
         [
             [0.0, 0.0, 1.0],

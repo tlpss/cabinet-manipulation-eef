@@ -29,14 +29,16 @@ class FGJointEstimator:
         self.compiled_graphs_cache = {}
         # larger noise for the part poses, as slip might occur between gripper and handle
         self.trans_noise_stddev = 0.001
-        self.rot_noise_stddev = 0.05
+        # most slip in orientation, yet if you overdo the noise levels,
+        # the initial estimate can be rather weird.
+        self.rot_noise_stddev = 0.02
 
         # very low noise, as the base is fixed. Avoid that the FG can have body latents that are not fixed.
         # This is a hack, as the FG should be be reformulated to have only latents for the part and not for the body.
         self.body_trans_noise_stddev = 1e-10
         self.body_rot_noise_stddev = 1e-10
 
-        self.max_restarts = 20
+        self.max_restarts = 40
 
     def _build_graph(self, num_samples: int):
         """build the JAX factor graph for the required number of data samples"""
@@ -47,7 +49,7 @@ class FGJointEstimator:
             observe_part_pose_betweens=False,
             observe_part_centers=False,
         )
-        joint_formulation = {"first_second": JointFormulation.Revolute}
+        joint_formulation = {"first_second": JointFormulation.GeneralTwist}
 
         graph: factor_graph.graph.Graph = factor_graph.graph.Graph()
         variance_exp_factor = onp.concatenate(

@@ -27,7 +27,7 @@ class CabinetOpener:
         self.robot = robot
         self.gripper = gripper
         self.gripper_poses = []
-        self.n_steps = 10
+        self.n_steps = 15
         self.joint_configuration_step_delta = 0.01
         self.initial_gripper_pose = None
         self.estimation_results = None
@@ -60,9 +60,10 @@ class CabinetOpener:
         while not self._is_cabinet_open() and self._is_grasped_heuristic():
             if self.check_estimations_manually:
                 check = input(
-                    "check in rerun if the joint estimation is not crazy. Press a key to continue or CTRL+C to abort"
+                    "check in rerun if the joint estimation is not crazy. Press a key to continue, D to signal the cabinet is open or CTRL+C to abort"
                 ) #noqa
-                
+                if check == "d":
+                    return
             # safety check - is robot controller still up and running?
             if not self.robot._get_active_FZI_controller() == self.robot.FZI_ADMITTANCE_CONTROLLER_NAME:
                 raise Exception("Admittance controller is not running")
@@ -111,6 +112,13 @@ class CabinetOpener:
                         colors=[150, 0, 0],
                         radii=0.01,
                     )
+
+                            # log wrench 
+                    wrench = self.robot.get_wrench()
+                    # log each scalar
+                    for i,label in zip(range(6),["Fx","Fy","Fz","Tx","Ty","Tz"]):
+                        rerun.log_scalar(f"robot/wrench/{label}", wrench[i])
+
 
             # make new estimate of the articulation
 
@@ -219,6 +227,7 @@ class CabinetOpener:
         )
 
 
+
     def visualize_estimation(self,estimation: EstimationResults):
         q_values = np.asarray(estimation.aux_data["joint_states"])
         delta_step = self._get_step_delta(q_values, estimation.twist)
@@ -256,24 +265,11 @@ if __name__ == "__main__":
     cabinet_opener = CabinetOpener(robot, gripper)
     #cabinet_opener.precompile_all_graphs()
 
-    rotation_matrix = np.array(
-        [
-            [0.0, 0.0, 1.0],
-            [-1.0, 0.0, 0.0],
-            [0.0, -1.0, 0.0],
-        ]
-    )
-
-    home_pose = SE3Container.from_rotation_matrix_and_translation(
-        rotation_matrix, np.array([0.4, -0.2, 0.2])
-    ).homogeneous_matrix
-    robot.move_to_pose(home_pose)
+    
+    input("manually grasp the handle and press enter")
+    robot.switch_to_admittance_control()
+    robot.set_target_pose(robot.get_tcp_pose())
+    input("press play on the polyscope to hand over control")
     cabinet_opener.log_pointcloud()
-
-    handle_pose = SE3Container.from_rotation_matrix_and_translation(
-        rotation_matrix, np.array([0.69, -0.180, 0.193])
-    ).homogeneous_matrix
-    cabinet_opener.grasp_cabinet_handle(handle_pose)
     cabinet_opener.open_grasped_cabinet()
 
-    robot.move_to_pose(home_pose)
