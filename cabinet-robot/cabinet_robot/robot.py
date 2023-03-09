@@ -49,8 +49,6 @@ class FZIControlledRobot:
     CONTROL_FRAME = "base"
     FLANGE_FRAME = "tool0"
 
-    TCP_Z_OFFSET = 0.175  # offset from the ROS tool0 frame to the TCP of the UR robot as configured in the controlbox.
-
     def __init__(self, ros2_ip: str = "127.0.0.1", ros2_port: int = 9090):
         self._ros = Ros(ros2_ip, ros2_port)
         self._ros.run()
@@ -76,10 +74,6 @@ class FZIControlledRobot:
         self.control_manager_list_controllers_service = Service(
             self._ros, "/controller_manager/list_controllers", "controller_manager_msgs/ListControllers"
         )
-
-        self.tcp_in_flange_frame = SE3Container.from_translation(
-            np.array([0, 0, self.TCP_Z_OFFSET])
-        ).homogeneous_matrix
 
         self.active_controller = self._get_active_FZI_controller()
 
@@ -125,12 +119,10 @@ class FZIControlledRobot:
         if self.active_controller not in (self.FZI_ADMITTANCE_CONTROLLER_NAME, self.FZI_MOTION_CONTROLLER_NAME):
             warnings.warn("Ignoring servo target as nor the admittance nor the motion controller is active.")
             return
+        # normalize the SE3 to avoid errors in the spatialmath lib
+        tcp_pose = sm.trnorm(tcp_pose)
 
-        tool0_pose = tcp_pose @ np.linalg.inv(self.tcp_in_flange_frame)
-
-        # make sure that spatialmath lib considers the pose to be a valid SE3 pose
-        tool0_pose = sm.trnorm(tool0_pose)
-        message = self._create_stamped_pose_message_from_pose(tool0_pose)
+        message = self._create_stamped_pose_message_from_pose(tcp_pose)
         self._admittance_target_pose_publisher.publish(Message(message))
 
     def move_to_pose(self, tcp_pose: HomogeneousMatrixType) -> None:
@@ -147,8 +139,7 @@ class FZIControlledRobot:
             print("switching to position control")
             self.switch_to_position_control()
 
-        tool0_pose = tcp_pose @ np.linalg.inv(self.tcp_in_flange_frame)
-        message = self._create_stamped_pose_message_from_pose(tool0_pose)
+        message = self._create_stamped_pose_message_from_pose(tcp_pose)
         self._motion_target_pose_publisher.publish(Message(message))
 
         waiting_time = 0.0
@@ -187,7 +178,7 @@ class FZIControlledRobot:
             try:
                 response = self.control_manager_list_controllers_service.call(request, callback=None, timeout=10)
             except roslibpy.core.ServiceException:
-                warnings.warn(f"could not switch controllers in the {attempt}/{attempts} th attempt")
+                warnings.warn(f"could not list controllers in the {attempt}/{attempts} th attempt")
                 time.sleep(0.5)
                 if attempt == attempts - 1:
                     raise ConnectionError("Could not query the active FZI controller.")
