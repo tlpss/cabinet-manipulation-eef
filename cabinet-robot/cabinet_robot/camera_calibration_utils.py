@@ -13,7 +13,7 @@ def get_marker_pickle_path():
 def get_marker_pose_in_robot_frame() -> HomogeneousMatrixType:
     """manually measured for the current pickled marker_in_camera pose"""
     return SE3Container.from_euler_angles_and_translation(
-        np.array([0, 0, 0]), np.array([0.383, -0.054, -0.011])
+        np.array([0, 0, 0]), np.array([0.275, -0.107, -0.010])
     ).homogeneous_matrix
 
 

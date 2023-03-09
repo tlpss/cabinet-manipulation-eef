@@ -14,6 +14,7 @@ from cabinet_robot.camera_calibration_utils import get_camera_pose_in_robot_fram
 from cabinet_robot.joint_estimation import FGJointEstimator, EstimationResults
 from cabinet_robot.robot import FZIControlledRobot
 from loguru import logger
+from cabinet_robot.manual_point_cloud import create_pointcloud_from_depth_map
 
 
 
@@ -193,21 +194,26 @@ class CabinetOpener:
     def log_pointcloud(self):
         rgb = self.camera.get_rgb_image()
         depth = self.camera.get_depth_image()
-        rerun.log_image("world/camera/rgb", image=rgb)
+        depth_map = self.camera.get_depth_map()
+        intrinsics = self.camera.intrinsics_matrix()
+        diy_pointcloud = create_pointcloud_from_depth_map(depth_map,rgb, intrinsics)
+        
+        pointcloud = self.camera.get_colored_point_cloud()
 
+        rerun.log_image("world/camera/rgb", image=rgb)
         rerun.log_image("camera/depth", image=depth)
         rerun.log_image("camera/rgb", image=rgb)
-
-        pointcloud = self.camera.get_colored_point_cloud()
         rerun.log_points("world/camera/pointcloud", positions=pointcloud[:, :3], colors=pointcloud[:, 3:])
+        rerun.log_points("world/camera/diy_pointcloud", positions=diy_pointcloud[:, :3], colors=diy_pointcloud[:, 3:])
+        
         camera_pose_in_world = get_camera_pose_in_robot_frame()
         se3_container = SE3Container.from_homogeneous_matrix(camera_pose_in_world)
         rerun.log_rigid3(
-            "world/camera", child_from_parent=(se3_container.translation, se3_container.orientation_as_quaternion)
+            "world/camera", parent_from_child=(se3_container.translation, se3_container.orientation_as_quaternion)
         )
         rerun.log_pinhole(
             "world/camera/rgb",
-            child_from_parent=self.camera.intrinsics_matrix,
+            child_from_parent=self.camera.intrinsics_matrix(),
             width=rgb.shape[1],
             height=rgb.shape[0],
         )
@@ -218,8 +224,11 @@ class CabinetOpener:
         delta_step = self._get_step_delta(q_values, estimation.twist)
         future_q_values = np.linspace(q_values[-1] - 10 * delta_step, q_values[-1] + 20 * delta_step, 30)
 
-        estimated_latent_poses = np.stack(
+        estimated_latent_part_poses = np.stack(
             [np.asarray(m.as_matrix()) for m in estimation.aux_data["latent_poses"]["second"]]
+        )
+        estimated_latent_body_poses = np.stack(
+            [np.asarray(m.as_matrix()) for m in estimation.aux_data["latent_poses"]["first"]]
         )
         estimated_future_latent_poses = np.stack(
             [
@@ -227,8 +236,10 @@ class CabinetOpener:
                 for q in future_q_values
             ]
         )
-        rerun.log_points("world/estimated_latent_poses", positions = estimated_latent_poses[:, :3, 3], colors=[0, 255, 20], radii=0.01)
-        rerun.log_points("world/estimated_future_latent_poses", positions=estimated_future_latent_poses[:, :3, 3], colors=[0, 255, 0], radii=0.01)
+        rerun.log_points("world/estimated_latent_part_poses", positions = estimated_latent_part_poses[:, :3, 3], colors=[0, 255, 100], radii=0.01)
+        rerun.log_points("world/estimated_latent_body_poses", positions = estimated_latent_body_poses[:, :3, 3], colors=[0, 255, 200], radii=0.01)
+
+        rerun.log_points("world/estimated_part_poses", positions=estimated_future_latent_poses[:, :3, 3], colors=[0, 255, 0], radii=0.01)
 
     def _init_rerun(self):
         rerun.init(f"cabinet-opener-{datetime.now()}", spawn=True)

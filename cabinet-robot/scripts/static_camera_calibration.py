@@ -118,7 +118,7 @@ if __name__ == "__main__":
 
         intrinsics_matrix = zed.intrinsics_matrix
         _, translations, rotations, _ = get_aruco_marker_poses(
-            image, intrinsics_matrix, 0.10, cv2.aruco.DICT_6X6_250, True
+            image, intrinsics_matrix, 0.10, cv2.aruco.DICT_4X4_250, True
         )
         image = draw_center_circle(image)
         if rotations:
