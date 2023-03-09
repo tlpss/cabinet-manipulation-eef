@@ -29,7 +29,7 @@ class FGJointEstimator:
         self.compiled_graphs_cache = {}
         # larger noise for the part poses, as slip might occur between gripper and handle
         self.trans_noise_stddev = 0.001
-        self.rot_noise_stddev = 0.002
+        self.rot_noise_stddev = 0.05
 
         # very low noise, as the base is fixed. Avoid that the FG can have body latents that are not fixed.
         # This is a hack, as the FG should be be reformulated to have only latents for the part and not for the body.

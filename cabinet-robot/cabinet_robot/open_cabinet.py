@@ -252,6 +252,7 @@ if __name__ == "__main__":
     gripper = Robotiq2F85(robot_ip)
     gripper.open()
     gripper.speed = gripper.gripper_specs.min_speed  # so that closing is not too fast and admittance can keep up
+    gripper.force = gripper.gripper_specs.max_force # limit slip as much as possible
     cabinet_opener = CabinetOpener(robot, gripper)
     #cabinet_opener.precompile_all_graphs()
 
@@ -264,7 +265,7 @@ if __name__ == "__main__":
     )
 
     home_pose = SE3Container.from_rotation_matrix_and_translation(
-        rotation_matrix, np.array([0.5, -0.2, 0.2])
+        rotation_matrix, np.array([0.4, -0.2, 0.2])
     ).homogeneous_matrix
     robot.move_to_pose(home_pose)
     cabinet_opener.log_pointcloud()
