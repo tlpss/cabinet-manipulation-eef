@@ -63,6 +63,7 @@ def launch_setup(context, *args, **kwargs):
     LaunchConfiguration("controllers_file")
     description_package = LaunchConfiguration("description_package")
     description_file = LaunchConfiguration("description_file")
+    urdf_description_package = "ure_cartesian_controllers"
     prefix = LaunchConfiguration("prefix")
     use_fake_hardware = LaunchConfiguration("use_fake_hardware")
     fake_sensor_commands = LaunchConfiguration("fake_sensor_commands")
@@ -105,7 +106,7 @@ def launch_setup(context, *args, **kwargs):
         [
             PathJoinSubstitution([FindExecutable(name="xacro")]),
             " ",
-            PathJoinSubstitution([FindPackageShare(description_package), "urdf", description_file]),
+            PathJoinSubstitution([FindPackageShare(urdf_description_package), "urdf", description_file]),
             " ",
             "robot_ip:=",
             robot_ip,

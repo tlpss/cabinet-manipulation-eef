@@ -15,6 +15,8 @@ setup(
         # include all launch files
         (os.path.join("share", package_name, "launch"), glob("launch/*.launch.py")),
         (os.path.join("share", package_name, "config"), glob("config/*.yaml")),
+        (os.path.join("share", package_name, "urdf"),glob("urdf/*.xacro") ),
+        (os.path.join("share", package_name, "urdf/inc"),glob("urdf/inc/*.xacro") ),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
