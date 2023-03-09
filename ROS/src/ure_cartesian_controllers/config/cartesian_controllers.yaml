@@ -93,13 +93,14 @@ controller_manager:
       - position
         #- velocity
 
+    #These are highly dependent on your use case.
     stiffness:  # w.r.t. compliance_ref_link coordinates
-        trans_x: 500.0
-        trans_y: 500.0
-        trans_z: 500.0
-        rot_x: 20.0
-        rot_y: 20.0
-        rot_z: 20.0
+        trans_x: 50.0
+        trans_y: 50.0
+        trans_z: 200.0
+        rot_x: 0.5
+        rot_y: 0.5
+        rot_z: 0.5
 
     solver:
         error_scale: 0.5
