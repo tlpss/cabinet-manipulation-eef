@@ -20,6 +20,6 @@ if __name__ == "__main__":
         ]
     )
     home_pose = SE3Container.from_rotation_matrix_and_translation(
-        rotation_matrix, np.array([0.4, -0.2, 0.2])
+        rotation_matrix, np.array([0.5, -0.2, 0.2])
     ).homogeneous_matrix
     robot.move_to_pose(home_pose)

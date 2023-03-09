@@ -27,8 +27,16 @@ class FGJointEstimator:
 
     def __init__(self):
         self.compiled_graphs_cache = {}
-        self.trans_noise_stddev = 0.005
-        self.rot_noise_stddev = 0.05
+        # larger noise for the part poses, as slip might occur between gripper and handle
+        self.trans_noise_stddev = 0.001
+        self.rot_noise_stddev = 0.002
+
+        # very low noise, as the base is fixed. Avoid that the FG can have body latents that are not fixed.
+        # This is a hack, as the FG should be be reformulated to have only latents for the part and not for the body.
+        self.body_trans_noise_stddev = 1e-10
+        self.body_rot_noise_stddev = 1e-10
+
+        self.max_restarts = 20
 
     def _build_graph(self, num_samples: int):
         """build the JAX factor graph for the required number of data samples"""
@@ -39,7 +47,7 @@ class FGJointEstimator:
             observe_part_pose_betweens=False,
             observe_part_centers=False,
         )
-        joint_formulation = {"first_second": JointFormulation.GeneralTwist}
+        joint_formulation = {"first_second": JointFormulation.Revolute}
 
         graph: factor_graph.graph.Graph = factor_graph.graph.Graph()
         variance_exp_factor = onp.concatenate(
@@ -90,15 +98,22 @@ class FGJointEstimator:
         if "joint_states" not in aux_data.keys():
             aux_data["joint_states"] = None
 
-        pose_variance = onp.concatenate(
+        parts_pose_variance = onp.concatenate(
             (
                 onp.repeat(self.trans_noise_stddev**2, repeats=3),
                 onp.repeat(self.rot_noise_stddev**2, repeats=3),
             )
         )
+        body_pose_variance = onp.concatenate(
+            (
+                onp.repeat(self.body_trans_noise_stddev**2, repeats=3),
+                onp.repeat(self.body_rot_noise_stddev**2, repeats=3),
+            )
+        )
+        pose_variance = {"second": parts_pose_variance, "first": body_pose_variance}
 
         graph.update_poses(poses_named, pose_variance, use_huber=use_huber)
-        twist, base_transform, aux_data = graph.solve_graph(aux_data_in=aux_data)
+        twist, base_transform, aux_data = graph.solve_graph(aux_data_in=aux_data,max_restarts = self.max_restarts)
         result = EstimationResults(
             twist=twist,
             twist_frame_in_base_pose=base_transform,
@@ -133,7 +148,8 @@ class FGJointEstimator:
             @ estimation_results.twist_frame_in_base_pose,
             estimation_results.twist,
         )
-
+        print(f"latent poses: {estimation_results.aux_data['latent_poses']['first']}")
+        print( helpers.mean_pose(estimation_results.aux_data["latent_poses"]["first"]))
         estimation_results.twist_frame_in_base_pose = estimation.base_transform
         return estimation_results
 
