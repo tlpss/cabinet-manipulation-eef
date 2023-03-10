@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         with:
-        submodules: recursive
+          submodules: recursive
       - name: install conda env with micromamba
         uses: mamba-org/provision-with-micromamba@main
         with:
