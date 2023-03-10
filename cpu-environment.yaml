@@ -26,7 +26,7 @@ dependencies:
     - pre-commit
     - mypy
     - darglint
-    - https://github.com/rerun-io/rerun/releases/download/latest/rerun_sdk-0.2.0+df920dc.1-cp38-abi3-manylinux_2_31_x86_64.whl # pypi release broken
+    - rerun-sdk
     - -e cabinet-robot/
     - -e airo-mono/airo-typing
     - -e airo-mono/airo-spatial-algebra
