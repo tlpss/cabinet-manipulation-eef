@@ -98,9 +98,9 @@ controller_manager:
         trans_x: 50.0
         trans_y: 50.0
         trans_z: 200.0
-        rot_x: 0.5
-        rot_y: 0.5
-        rot_z: 0.5
+        rot_x: 2.0
+        rot_y: 2.0
+        rot_z: 2.0
 
     solver:
         error_scale: 0.5

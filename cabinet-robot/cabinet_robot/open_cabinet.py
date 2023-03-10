@@ -26,9 +26,9 @@ class CabinetOpener:
     def __init__(self, robot: FZIControlledRobot, gripper):
         self.robot = robot
         self.gripper = gripper
-        self.gripper_poses = []
+        self.gripper_poses = None
         self.n_steps = 15
-        self.joint_configuration_step_delta = 0.01
+        self.joint_configuration_step_delta = None
         self.initial_gripper_pose = None
         self.estimation_results = None
         self.camera = Zed2i(resolution=Zed2i.RESOLUTION_720, depth_mode=Zed2i.NEURAL_DEPTH_MODE)
@@ -46,7 +46,8 @@ class CabinetOpener:
             self._init_rerun()
 
     def open_grasped_cabinet(self):
-
+        self.gripper_poses = []
+        self.joint_configuration_step_delta = self.default_delta_step
         self.initial_gripper_pose = self.robot.get_tcp_pose()
         self.gripper_poses.append(self.initial_gripper_pose)
 
@@ -206,12 +207,12 @@ class CabinetOpener:
         intrinsics = self.camera.intrinsics_matrix()
         diy_pointcloud = create_pointcloud_from_depth_map(depth_map,rgb, intrinsics)
         
-        pointcloud = self.camera.get_colored_point_cloud()
+        #pointcloud = self.camera.get_colored_point_cloud()
 
-        rerun.log_image("world/camera/rgb", image=rgb)
+        #rerun.log_image("world/camera/rgb", image=rgb)
         rerun.log_image("camera/depth", image=depth)
         rerun.log_image("camera/rgb", image=rgb)
-        rerun.log_points("world/camera/pointcloud", positions=pointcloud[:, :3], colors=pointcloud[:, 3:])
+        #rerun.log_points("world/camera/pointcloud", positions=pointcloud[:, :3], colors=pointcloud[:, 3:])
         rerun.log_points("world/camera/diy_pointcloud", positions=diy_pointcloud[:, :3], colors=diy_pointcloud[:, 3:])
         
         camera_pose_in_world = get_camera_pose_in_robot_frame()
@@ -219,12 +220,12 @@ class CabinetOpener:
         rerun.log_rigid3(
             "world/camera", parent_from_child=(se3_container.translation, se3_container.orientation_as_quaternion)
         )
-        rerun.log_pinhole(
-            "world/camera/rgb",
-            child_from_parent=self.camera.intrinsics_matrix(),
-            width=rgb.shape[1],
-            height=rgb.shape[0],
-        )
+        # rerun.log_pinhole(
+        #     "world/camera/rgb",
+        #     child_from_parent=self.camera.intrinsics_matrix(),
+        #     width=rgb.shape[1],
+        #     height=rgb.shape[0],
+        # )
 
 
 
@@ -251,6 +252,7 @@ class CabinetOpener:
         rerun.log_points("world/estimated_part_poses", positions=estimated_future_latent_poses[:, :3, 3], colors=[0, 255, 0], radii=0.01)
 
     def _init_rerun(self):
+        rerun.disconnect()
         rerun.init(f"cabinet-opener-{datetime.now()}", spawn=True)
 
 
@@ -263,13 +265,15 @@ if __name__ == "__main__":
     gripper.speed = gripper.gripper_specs.min_speed  # so that closing is not too fast and admittance can keep up
     gripper.force = gripper.gripper_specs.max_force # limit slip as much as possible
     cabinet_opener = CabinetOpener(robot, gripper)
-    #cabinet_opener.precompile_all_graphs()
+    cabinet_opener.precompile_all_graphs()
 
+    while(True):
     
-    input("manually grasp the handle and press enter")
-    robot.switch_to_admittance_control()
-    robot.set_target_pose(robot.get_tcp_pose())
-    input("press play on the polyscope to hand over control")
-    cabinet_opener.log_pointcloud()
-    cabinet_opener.open_grasped_cabinet()
+        input("manually grasp the handle and press enter")
+        robot.switch_to_admittance_control()
+        robot.set_target_pose(robot.get_tcp_pose())
+        input("press play on the polyscope to hand over control. Press enter when done")
+        cabinet_opener._init_rerun()
+        cabinet_opener.log_pointcloud()
+        cabinet_opener.open_grasped_cabinet()
 
