@@ -11,11 +11,10 @@ from airo_robots.grippers.hardware.robotiq_2f85_tcp import Robotiq2F85
 from airo_spatial_algebra import SE3Container
 from airo_typing import HomogeneousMatrixType, TwistType
 from cabinet_robot.camera_calibration_utils import get_camera_pose_in_robot_frame
-from cabinet_robot.joint_estimation import FGJointEstimator, EstimationResults
+from cabinet_robot.joint_estimation import EstimationResults, FGJointEstimator
+from cabinet_robot.manual_point_cloud import create_pointcloud_from_depth_map
 from cabinet_robot.robot import FZIControlledRobot
 from loguru import logger
-from cabinet_robot.manual_point_cloud import create_pointcloud_from_depth_map
-
 
 
 class CabinetOpener:
@@ -35,13 +34,13 @@ class CabinetOpener:
         self.camera.runtime_params.texture_confidence_threshold = 100
         self.camera.runtime_params.confidence_threshold = 100
 
-        self.max_FG_samples = 1 + 2 * self.n_steps # only 2 graph compilations
+        self.max_FG_samples = 1 + 2 * self.n_steps  # only 2 graph compilations
         self.FG_estimator = FGJointEstimator()
         self.thread_pool = ThreadPoolExecutor(max_workers=1)
 
         self.visualize = True
         self.check_estimations_manually = True
-        
+
         if self.visualize:
             self._init_rerun()
 
@@ -62,7 +61,7 @@ class CabinetOpener:
             if self.check_estimations_manually:
                 check = input(
                     "check in rerun if the joint estimation is not crazy. Press a key to continue, D to signal the cabinet is open or CTRL+C to abort"
-                ) #noqa
+                )  # noqa
                 if check == "d":
                     return
             # safety check - is robot controller still up and running?
@@ -74,12 +73,14 @@ class CabinetOpener:
             if self.estimation_results is not None:
                 estimated_joint_states = self.estimation_results.aux_data["joint_states"]
                 logger.debug(f" {estimated_joint_states=}")
-                self.joint_configuration_step_delta = self._get_step_delta(estimated_joint_states,estimated_twist)
+                self.joint_configuration_step_delta = self._get_step_delta(estimated_joint_states, estimated_twist)
 
             logger.info(f" {self.joint_configuration_step_delta=}")
 
             # pre-compile the factor graph in a separate thread
-            precompile_future = self._precompile_graph(num_samples=min(len(self.gripper_poses) + self.n_steps,self.max_FG_samples))
+            precompile_future = self._precompile_graph(
+                num_samples=min(len(self.gripper_poses) + self.n_steps, self.max_FG_samples)
+            )
             for i in range(self.n_steps):
                 # take a small step in the joint configuration
                 q_joint = q_joint + self.joint_configuration_step_delta
@@ -88,7 +89,7 @@ class CabinetOpener:
                 new_setpoint_pose = self.get_gripper_pose_from_joint_q_and_twist(
                     q_joint, twist_in_base_pose, estimated_twist
                 )
-        
+
                 self.robot.set_target_pose(new_setpoint_pose)
                 # wait for robot to reach the setpoint
                 # TODO: check for changes in the TCP pose to determine if the robot has reached a stable pose
@@ -97,29 +98,28 @@ class CabinetOpener:
                 # if force has become too high or gripper no longer has contact, stop
                 if self._is_force_too_high() or not self._is_grasped_heuristic():
                     raise Exception("Cabinet could not be opened")
-               
+
                 # collect the gripper pose
                 self.gripper_poses.append(self.robot.get_tcp_pose())
 
                 if self.visualize:
                     rerun.log_point(
-                    "world/robot_setpoint", new_setpoint_pose[:3, 3], color=(1, 1, 0, 0.7), radius=0.012
+                        "world/robot_setpoint", new_setpoint_pose[:3, 3], color=(1, 1, 0, 0.7), radius=0.012
                     )
                     rerun.log_image("camera/rgb", self.camera.get_rgb_image())
 
                     rerun.log_points(
                         "world/gripper_poses",
-                        positions=np.asarray(self.gripper_poses)[:,:3, 3],
+                        positions=np.asarray(self.gripper_poses)[:, :3, 3],
                         colors=[150, 0, 0],
                         radii=0.01,
                     )
 
-                            # log wrench 
+                    # log wrench
                     wrench = self.robot.get_wrench()
                     # log each scalar
-                    for i,label in zip(range(6),["Fx","Fy","Fz","Tx","Ty","Tz"]):
+                    for i, label in zip(range(6), ["Fx", "Fy", "Fz", "Tx", "Ty", "Tz"]):
                         rerun.log_scalar(f"robot/wrench/{label}", wrench[i])
-
 
             # make new estimate of the articulation
 
@@ -127,8 +127,8 @@ class CabinetOpener:
             logger.debug("Waiting for graph compilation to finish")
             precompile_future.result(60)
             logger.debug("graph is compiled")
-            
-            gripper_poses = self._subsample_gripper_poses(self.gripper_poses,self.max_FG_samples)
+
+            gripper_poses = self._subsample_gripper_poses(self.gripper_poses, self.max_FG_samples)
             estimated_twist, twist_in_base_pose, q_joint = self.estimate_twist(gripper_poses)
             logger.debug("twist estimation finished")
 
@@ -141,20 +141,20 @@ class CabinetOpener:
         logger.info("Finished precompiling all graphs")
 
     @staticmethod
-    def _subsample_gripper_poses(poses: List[np.ndarray],n_samples) -> List[np.ndarray]:
+    def _subsample_gripper_poses(poses: List[np.ndarray], n_samples) -> List[np.ndarray]:
         if len(poses) < n_samples:
             return poses
         else:
-            step = len(poses) / (n_samples-1)
-            indices = [round(step*i) for i in range(n_samples-1)]
+            step = len(poses) / (n_samples - 1)
+            indices = [round(step * i) for i in range(n_samples - 1)]
             sampled_poses = [poses[i] for i in indices]
             sampled_poses.append(poses[-1])
             return sampled_poses
 
-    def _get_step_delta(self,estimated_joint_states:List[float],estimated_twist:np.ndarray) -> float:
+    def _get_step_delta(self, estimated_joint_states: List[float], estimated_twist: np.ndarray) -> float:
         step_direction = np.sign(estimated_joint_states[-1] - estimated_joint_states[0])
         # determine step size to 'normalize' the linear velocity of the twist
-        step_size = self.default_delta_step/ np.linalg.norm(estimated_twist[:3])
+        step_size = self.default_delta_step / np.linalg.norm(estimated_twist[:3])
         return step_direction * step_size
 
     def _precompile_graph(self, num_samples: int) -> Future:
@@ -205,16 +205,16 @@ class CabinetOpener:
         depth = self.camera.get_depth_image()
         depth_map = self.camera.get_depth_map()
         intrinsics = self.camera.intrinsics_matrix()
-        diy_pointcloud = create_pointcloud_from_depth_map(depth_map,rgb, intrinsics)
-        
-        #pointcloud = self.camera.get_colored_point_cloud()
+        diy_pointcloud = create_pointcloud_from_depth_map(depth_map, rgb, intrinsics)
 
-        #rerun.log_image("world/camera/rgb", image=rgb)
+        # pointcloud = self.camera.get_colored_point_cloud()
+
+        # rerun.log_image("world/camera/rgb", image=rgb)
         rerun.log_image("camera/depth", image=depth)
         rerun.log_image("camera/rgb", image=rgb)
-        #rerun.log_points("world/camera/pointcloud", positions=pointcloud[:, :3], colors=pointcloud[:, 3:])
+        # rerun.log_points("world/camera/pointcloud", positions=pointcloud[:, :3], colors=pointcloud[:, 3:])
         rerun.log_points("world/camera/diy_pointcloud", positions=diy_pointcloud[:, :3], colors=diy_pointcloud[:, 3:])
-        
+
         camera_pose_in_world = get_camera_pose_in_robot_frame()
         se3_container = SE3Container.from_homogeneous_matrix(camera_pose_in_world)
         rerun.log_rigid3(
@@ -227,9 +227,7 @@ class CabinetOpener:
         #     height=rgb.shape[0],
         # )
 
-
-
-    def visualize_estimation(self,estimation: EstimationResults):
+    def visualize_estimation(self, estimation: EstimationResults):
         q_values = np.asarray(estimation.aux_data["joint_states"])
         delta_step = self._get_step_delta(q_values, estimation.twist)
         future_q_values = np.linspace(q_values[-1] - 10 * delta_step, q_values[-1] + 20 * delta_step, 30)
@@ -242,14 +240,30 @@ class CabinetOpener:
         )
         estimated_future_latent_poses = np.stack(
             [
-                np.asarray(estimation.twist_frame_in_base_pose.as_matrix()) @ sm.trexp(np.asarray(estimation.twist) * q)
+                np.asarray(estimation.twist_frame_in_base_pose.as_matrix())
+                @ sm.trexp(np.asarray(estimation.twist) * q)
                 for q in future_q_values
             ]
         )
-        rerun.log_points("world/estimated_latent_part_poses", positions = estimated_latent_part_poses[:, :3, 3], colors=[0, 255, 100], radii=0.01)
-        rerun.log_points("world/estimated_latent_body_poses", positions = estimated_latent_body_poses[:, :3, 3], colors=[0, 255, 200], radii=0.01)
+        rerun.log_points(
+            "world/estimated_latent_part_poses",
+            positions=estimated_latent_part_poses[:, :3, 3],
+            colors=[0, 255, 100],
+            radii=0.01,
+        )
+        rerun.log_points(
+            "world/estimated_latent_body_poses",
+            positions=estimated_latent_body_poses[:, :3, 3],
+            colors=[0, 255, 200],
+            radii=0.01,
+        )
 
-        rerun.log_points("world/estimated_part_poses", positions=estimated_future_latent_poses[:, :3, 3], colors=[0, 255, 0], radii=0.01)
+        rerun.log_points(
+            "world/estimated_part_poses",
+            positions=estimated_future_latent_poses[:, :3, 3],
+            colors=[0, 255, 0],
+            radii=0.01,
+        )
 
     def _init_rerun(self):
         rerun.disconnect()
@@ -263,12 +277,12 @@ if __name__ == "__main__":
     gripper = Robotiq2F85(robot_ip)
     gripper.open()
     gripper.speed = gripper.gripper_specs.min_speed  # so that closing is not too fast and admittance can keep up
-    gripper.force = gripper.gripper_specs.max_force # limit slip as much as possible
+    gripper.force = gripper.gripper_specs.max_force  # limit slip as much as possible
     cabinet_opener = CabinetOpener(robot, gripper)
     cabinet_opener.precompile_all_graphs()
 
-    while(True):
-    
+    while True:
+
         input("manually grasp the handle and press enter")
         robot.switch_to_admittance_control()
         robot.set_target_pose(robot.get_tcp_pose())
@@ -276,4 +290,3 @@ if __name__ == "__main__":
         cabinet_opener._init_rerun()
         cabinet_opener.log_pointcloud()
         cabinet_opener.open_grasped_cabinet()
-

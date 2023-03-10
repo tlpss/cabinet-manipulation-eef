@@ -413,9 +413,9 @@
     </joint>
 
     <!-- add TCP frame with an offset of 0.175m along the Z axis of the tool0 frame
-    This corresponds to the offset for a Robotiq2f85 gripper. 
+    This corresponds to the offset for a Robotiq2f85 gripper.
 
-    Also add compliance frame 2cm inwards along the Z axis of the TCP frame. 
+    Also add compliance frame 2cm inwards along the Z axis of the TCP frame.
     This is used to make sure that torques of grasped objects are not producing opposing moments.
 
     the FZI controller wants the compliance frame to be part of the chain between the TCP frame and the

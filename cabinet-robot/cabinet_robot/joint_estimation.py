@@ -115,7 +115,7 @@ class FGJointEstimator:
         pose_variance = {"second": parts_pose_variance, "first": body_pose_variance}
 
         graph.update_poses(poses_named, pose_variance, use_huber=use_huber)
-        twist, base_transform, aux_data = graph.solve_graph(aux_data_in=aux_data,max_restarts = self.max_restarts)
+        twist, base_transform, aux_data = graph.solve_graph(aux_data_in=aux_data, max_restarts=self.max_restarts)
         result = EstimationResults(
             twist=twist,
             twist_frame_in_base_pose=base_transform,
@@ -151,7 +151,7 @@ class FGJointEstimator:
             estimation_results.twist,
         )
         print(f"latent poses: {estimation_results.aux_data['latent_poses']['first']}")
-        print( helpers.mean_pose(estimation_results.aux_data["latent_poses"]["first"]))
+        print(helpers.mean_pose(estimation_results.aux_data["latent_poses"]["first"]))
         estimation_results.twist_frame_in_base_pose = estimation.base_transform
         return estimation_results
 
