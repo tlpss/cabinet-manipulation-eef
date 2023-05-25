@@ -16,7 +16,6 @@ dependencies:
   - cuda-nvcc
   - pip
   - pip:
-    - numpy
     - matplotlib
     - ur-rtde
     - wandb
