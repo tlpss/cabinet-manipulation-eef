@@ -50,7 +50,7 @@ The UR in RVIZ should have the same pose as the real UR robot. Check for any err
 
 ### Opening articulated objects
 run `python cabinet_robot/open_cabinet.py`. You will be asked to move the robot to the grasp pose, which you can do by pausing the external control program. After this, you can press enter and the robot will open the grasped articulated object.
-## Development 
+## Development
 
 ### Running formatting, linting and testing
 - (initialize the pre-commit hooks `pre-commit install`)
