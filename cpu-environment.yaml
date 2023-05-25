@@ -39,7 +39,7 @@ dependencies:
     - jaxlie==1.3.0
     - matplotlib==3.4.1
     - networkx==2.6.2
-    - numpy==1.21.1
+    - numpy
     - open3d==0.11.2
     - overrides==6.0.1
     - pandas==1.2.4
