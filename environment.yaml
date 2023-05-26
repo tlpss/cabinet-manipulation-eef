@@ -24,7 +24,7 @@ dependencies:
     - pre-commit
     - mypy
     - darglint
-    - rerun-sdk
+    - rerun-sdk==0.4.0
     - -e cabinet-robot/
     - -e airo-mono/airo-typing
     - -e airo-mono/airo-spatial-algebra
